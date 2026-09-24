@@ -157,6 +157,8 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   const epoch = useRef(0);
   const definition = client.definition;
   const modifier = useRef(dailyModifier());
+  /** Cue throttles; the SDK mixes four voices, so unthrottled kills would just be noise. */
+  const cueAt = useRef({ kill: 0, nodeHit: 0 });
 
   useEffect(() => {
     const version = ++epoch.current;
@@ -199,7 +201,19 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
         const fy = Number(canvas.dataset.y);
         if (Number.isFinite(fx) && Number.isFinite(fy)) {
           const run = runRef.current;
-          if (!paused && menu === null) step(run, dt, { x: fx, y: fy }, modifier.current);
+          if (!paused && menu === null) {
+            const events = step(run, dt, { x: fx, y: fy }, modifier.current);
+            if (events.kills > 0 && now - cueAt.current.kill > 110) {
+              cueAt.current.kill = now;
+              sound.current?.play("impact");
+            }
+            if (events.nodeHits > 0 && now - cueAt.current.nodeHit > 260) {
+              cueAt.current.nodeHit = now;
+              sound.current?.play("anticipation");
+            }
+            if (events.waveCleared) sound.current?.play("action-ready");
+            if (events.lost) sound.current?.play("reveal-legendary");
+          }
           const context = surface.getContext("2d");
           if (context) paint(context, run, { x: fx, y: fy }, buildMode);
 
@@ -285,6 +299,8 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
 
   const beginRun = () => {
     if (snapshot.consumables < 1n) { setError("You need at least one Power Cell to defend the node."); return; }
+    void sound.current?.unlock();
+    sound.current?.play("action-start");
     runRef.current = createRun();
     startWave(runRef.current, 1);
     setRewards([]);
@@ -301,12 +317,19 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
       for (const play of plays) settled.push(await client.settle(play.id));
       if (version === epoch.current) {
         runRef.current.phase = "banked";
+        const best = settled.reduce((top, play) => {
+          const value = play.outcomeId ? definition.outcomes[play.outcomeId - 1].reward : 0n;
+          return value > top ? value : top;
+        }, 0n);
+        const top = maximumPrize(definition);
+        sound.current?.play(best >= top ? "reveal-legendary" : best * 4n >= top ? "reveal-rare" : "reveal-common");
         setRewards(settled);
         setMenu("result");
       }
     });
 
   const pushOn = () => {
+    sound.current?.play("action-start");
     startWave(runRef.current, hud.cleared + 1);
     setMenu(null);
   };
@@ -326,7 +349,8 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   };
 
   const stageEnd = STAGE_WAVES.includes(hud.cleared);
-  const title = menu === "generator" ? "Generator"
+  const title = menu === "settings" ? "Settings"
+    : menu === "generator" ? "Generator"
     : menu === "result" ? "Run banked"
     : run.phase === "lost" ? "The node fell"
     : hud.cleared > 0 ? `Wave ${hud.cleared} cleared` : "The Node";
@@ -442,7 +466,10 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
                 type="button"
                 className="rf-frame-primary"
                 disabled={!canBuy || busy || paused}
-                onClick={() => void act(() => client.buy(1n), () => setMessage("Power Cell charged."))}
+                onClick={() => void act(() => client.buy(1n), () => {
+                  sound.current?.play("purchase");
+                  setMessage("Power Cell charged.");
+                })}
               >
                 Buy one Power Cell · {rf(definition.price)}
               </button>
@@ -460,7 +487,10 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
                     <button
                       type="button"
                       disabled={busy || paused || !outcome || outcome.reward === 0n}
-                      onClick={() => void act(() => client.redeem(play.outcomeId!, 1n), () => setMessage("Redeemed."))}
+                      onClick={() => void act(() => client.redeem(play.outcomeId!, 1n), () => {
+                        sound.current?.play("reward");
+                        setMessage("Redeemed.");
+                      })}
                     >
                       Redeem
                     </button>
