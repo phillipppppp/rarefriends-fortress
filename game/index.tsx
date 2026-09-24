@@ -36,7 +36,7 @@ const STATIONS = [
 const VIEW = { x: 320, y: 330, width: 960, height: 640 };
 const rf = (value: bigint) => `${formatGameAmount(value, 18)} RF`;
 
-type Menu = "generator" | "node" | "result" | null;
+type Menu = "generator" | "node" | "result" | "settings" | null;
 
 /** Draws the run onto a transparent canvas stacked over the SDK world canvas. */
 function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number; y: number }, buildMode: TurretKind | null) {
@@ -141,6 +141,8 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   const [buildMode, setBuildMode] = useState<TurretKind | null>(null);
   const [worldNode, setWorldNode] = useState<HTMLDivElement | null>(null);
   const [near, setNear] = useState<null | (typeof STATIONS)[number]>(null);
+  const [muted, setMuted] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
   const [rewards, setRewards] = useState<readonly GamePlay[]>([]);
   /** Mirrors run state into React for the HUD only; the loop owns the authoritative copy. */
   const [hud, setHud] = useState({
@@ -164,7 +166,14 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
     void client.read().then(value => { if (version === epoch.current) setSnapshot(value); }).catch(cause => {
       if (version === epoch.current) setError(cause instanceof Error ? cause.message : "Could not load the preview.");
     });
-    return () => { epoch.current++; sound.current?.dispose(); sound.current = null; };
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const follow = () => setReducedMotion(preference.matches);
+    follow();
+    preference.addEventListener("change", follow);
+    return () => {
+      epoch.current++; sound.current?.dispose(); sound.current = null;
+      preference.removeEventListener("change", follow);
+    };
   }, [client, friendId]);
 
   // The simulation and the overlay share one animation frame loop.
@@ -254,7 +263,14 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   };
 
   if (!snapshot) {
-    return <div className="ff-loading" role={error ? "alert" : "status"}>{error || "Powering the node…"}</div>;
+    return (
+      <div className="ff-loading" role={error ? "alert" : "status"}>
+        {error || "Powering the node…"}
+        {error && (
+          <button type="button" onClick={() => void act(async () => {})}>Retry</button>
+        )}
+      </div>
+    );
   }
   if (snapshot.friendId !== friendId) return <p role="alert">This game session does not match the selected Friend.</p>;
 
@@ -316,7 +332,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
     : hud.cleared > 0 ? `Wave ${hud.cleared} cleared` : "The Node";
 
   return (
-    <section className="ff-game" aria-label={definition.name} aria-busy={busy}>
+    <section className={`ff-game${reducedMotion ? " ff-still" : ""}`} aria-label={definition.name} aria-busy={busy}>
       <div className="ff-world" ref={setWorldNode} inert={Boolean(menu) || paused || undefined}>
         <GameWorld
           world={world}
@@ -324,7 +340,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
           interactions={[]}
           friendId={friendId}
           paused={Boolean(menu) || paused}
-          reducedMotion={false}
+          reducedMotion={reducedMotion}
           onInteract={id => navigate(id as Menu)}
         />
         <canvas
@@ -347,6 +363,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               <span>Left {hud.enemies}</span>
             </>
           )}
+          <button type="button" onClick={() => navigate("settings")}>Settings</button>
           {near && !fighting && (
             <button
               type="button"
@@ -372,7 +389,8 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
         {hud.phase !== "wave" && <p className="ff-objective">
           {fighting
             ? buildMode ? `Tap open ground to place a ${TURRETS[buildMode].label} turret` : "Stay near the node — your Friend fires automatically"
-            : near ? `Tap Enter ${near.label}, or press E`
+            : near && near.id === (snapshot.consumables < 1n ? "generator" : "node")
+              ? `Tap Enter ${near.label}, or press E`
             : snapshot.consumables < 1n ? "Walk to the Generator to buy a Power Cell"
             : "Walk to the Node to begin a defence run"}
         </p>}
@@ -381,7 +399,35 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
 
       {menu && (
         <GameMenu title={title} onClose={busy ? undefined : () => navigate(null)}>
-          {menu === "generator" ? (
+          {menu === "settings" ? (
+            <>
+              <button
+                type="button"
+                aria-pressed={!muted}
+                onClick={() => {
+                  const next = !muted;
+                  setMuted(next);
+                  sound.current?.setMuted(next);
+                  if (!next) void sound.current?.unlock();
+                }}
+              >
+                {muted ? "Sound off" : "Sound on"}
+              </button>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={reducedMotion}
+                  onChange={event => setReducedMotion(event.target.checked)}
+                />
+                {" "}Reduce motion
+              </label>
+              <p className="ff-note">
+                Walk with WASD, the arrow keys, or by tapping the ground. Stand at a station and
+                press E, or use the Enter button in the HUD. All economy actions are simulated;
+                wallet connection and ownership verification are provided by the SDK.
+              </p>
+            </>
+          ) : menu === "generator" ? (
             <>
               <p>One Power Cell costs {rf(definition.price)}. Each roll of the reward table spends one cell.</p>
               <table>
