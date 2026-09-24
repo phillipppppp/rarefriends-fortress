@@ -7,7 +7,9 @@ Built with [FriendSDK](https://github.com/spokesz/friendsdk) v0.1.2 for the Rare
 
 - **Playable preview:** **https://phillipppppp.github.io/rarefriends-fortress/**
 - **Builder:** [@phillipppppp](https://github.com/phillipppppp)
-- **Category:** Character Spotlight
+- **Category:** Token Activity
+
+Every run spends Power Cells — one to start, one per roll banked — and runs are short and repeatable by design, so the token leaves circulation continuously rather than once.
 
 ![Your Friend defending the node mid-wave](docs/combat.png)
 
@@ -41,8 +43,14 @@ table true, and leaves the bank-or-push tension intact.
 
 ## Controls
 
-Walk with **WASD**, arrow keys, or tap a destination. Press **E** near a station. During a run, tap
-**Build** then tap open ground near the node to place a turret.
+Walk with **WASD**, arrow keys, or tap anywhere on the ground. Stand near a station and an
+**Enter** button appears in the HUD; **E** does the same. During a run, tap **Build** and then tap
+open ground near the node to place a turret.
+
+Stations deliberately have no floating label over the world. The SDK prompt is sized in CSS pixels
+while the world canvas scales down, so on a phone one prompt covers roughly 300x85 canvas pixels and
+swallows the taps that are the only way to walk. Keeping the action in the HUD leaves the whole
+canvas tappable.
 
 ## The economy
 
@@ -118,8 +126,6 @@ runtime and are not reimplemented here.
 - **This is the first playable milestone.** One enemy type carries waves 1–3, with tougher kinds from
   wave 4; one turret type is buildable, upgrades exist in the model but are not yet exposed.
 - **Run progress does not survive a reload.** The SDK preview ledger is held in memory.
-- **A station prompt sitting under your cursor swallows a click aimed at the ground.** Walk with the
-  keyboard, or click elsewhere, if a prompt is in the way.
 - **The game does not load inside MetaMask's in-app mobile browser.** The SDK renders games in
   `<iframe sandbox="allow-scripts">` and the bridge handshake does not complete there. It works in
   Chromium and WebKit at desktop and phone viewports, so it is that app's webview rather than the

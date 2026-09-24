@@ -21,9 +21,15 @@ const mesa = getWorldPreset("03-crystal-mesa-complete");
 const world = validateWorld({ ...mesa, actors: [] });
 const spawn = [288, 250] as const;
 
-const interactions: readonly GameWorldInteraction[] = [
-  { id: "generator", label: "Generator", position: [161, 93], reach: 58, labelOffset: -150 },
-  { id: "node", label: "The Node", position: [NODE.x, NODE.y], reach: 62, labelOffset: -130 },
+/**
+ * Stations are not rendered as the SDK floating prompts. Those are sized in CSS pixels
+ * while the world canvas scales down, so on a phone a single prompt blankets roughly
+ * 300x85 canvas pixels and swallows the taps that are the only way to walk. Proximity is
+ * detected here instead and the action lives in the HUD, leaving the whole canvas tappable.
+ */
+const STATIONS = [
+  { id: "generator" as const, label: "Generator", x: 161, y: 93, reach: 70 },
+  { id: "node" as const, label: "The Node", x: NODE.x, y: NODE.y, reach: 74 },
 ];
 
 /** Mirrors the runtime camera so overlay drawing lines up with the world canvas. */
@@ -122,6 +128,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   const [message, setMessage] = useState("");
   const [buildMode, setBuildMode] = useState(false);
   const [worldNode, setWorldNode] = useState<HTMLDivElement | null>(null);
+  const [near, setNear] = useState<null | (typeof STATIONS)[number]>(null);
   const [rewards, setRewards] = useState<readonly GamePlay[]>([]);
   /** Mirrors run state into React for the HUD only; the loop owns the authoritative copy. */
   const [hud, setHud] = useState({
@@ -182,6 +189,10 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               phase: run.phase, wave: run.wave, nodeHp: run.nodeHp,
               scrap: run.scrap, enemies: run.enemies.length + run.pending, cleared: run.cleared,
             });
+            const reachable = run.phase === "wave" || run.phase === "respite"
+              ? null
+              : STATIONS.find(station => Math.hypot(station.x - fx, station.y - fy) <= station.reach) ?? null;
+            setNear(current => (current?.id === reachable?.id ? current : reachable));
             if ((run.phase === "briefing" && run.wave > 0) || run.phase === "lost") {
               setMenu(current => (current === null ? "node" : current));
               setBuildMode(false);
@@ -194,6 +205,18 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [worldNode, paused, menu, buildMode]);
+
+  // The SDK binds E to its own prompts; those are gone, so the shortcut is rebound here.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "e" || event.repeat) return;
+      if (menu !== null || paused || !near) return;
+      event.preventDefault();
+      setMenu(near.id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menu, paused, near]);
 
   async function act(work: () => Promise<void>, after?: () => void) {
     if (locked.current || paused) return;
@@ -285,7 +308,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
         <GameWorld
           world={world}
           spawn={spawn}
-          interactions={fighting ? [] : interactions}
+          interactions={[]}
           friendId={friendId}
           paused={Boolean(menu) || paused}
           reducedMotion={false}
@@ -310,6 +333,15 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               <span>Left {hud.enemies}</span>
             </>
           )}
+          {near && !fighting && (
+            <button
+              type="button"
+              className="rf-frame-primary ff-enter"
+              onClick={() => navigate(near.id)}
+            >
+              Enter {near.label}
+            </button>
+          )}
           {fighting && (
             <button
               type="button"
@@ -324,8 +356,9 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
         <p className="ff-objective">
           {fighting
             ? buildMode ? "Tap open ground near the node to place a turret" : "Stay near the node — your Friend fires automatically"
-            : snapshot.consumables < 1n ? "Buy a Power Cell at the Generator"
-            : "Go to the Node to begin a defence run"}
+            : near ? `Tap Enter ${near.label}, or press E`
+            : snapshot.consumables < 1n ? "Walk to the Generator to buy a Power Cell"
+            : "Walk to the Node to begin a defence run"}
         </p>
         {message && <p className="ff-toast" role="status">{message}</p>}
       </div>

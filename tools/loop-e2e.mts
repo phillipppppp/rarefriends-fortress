@@ -13,28 +13,18 @@ await testGame("./games/fortress", {
   check: async ({ page, game }) => {
     const canvas = game.locator("canvas").first();
     const box = (await canvas.boundingBox())!;
-    // Station prompts float above the canvas and swallow clicks aimed at the ground,
-    // so they are made click-through for the duration of a walk instruction.
     const walkTo = async (x: number, y: number) => {
       const [px, py] = project(x, y);
-      await game.locator("body").evaluate((b: HTMLElement) => {
-        b.querySelectorAll<HTMLElement>(".rf-world-prompt").forEach(n => { n.style.pointerEvents = "none"; });
-      });
-      await canvas.click({ force: true, position: {
+      await canvas.click({ position: {
         x: ((px - VIEW.x) / VIEW.width) * box.width,
         y: ((py - VIEW.y) / VIEW.height) * box.height,
       } });
-      await game.locator("body").evaluate((b: HTMLElement) => {
-        b.querySelectorAll<HTMLElement>(".rf-world-prompt").forEach(n => { n.style.pointerEvents = ""; });
-      });
     };
+    /** Stations are entered from the HUD once the Friend is in range. */
     const arriveAt = async (label: RegExp) => {
-      const prompt = game.getByRole("button", { name: label });
-      for (let i = 0; i < 30; i += 1) {
-        if (await prompt.isEnabled().catch(() => false)) return prompt;
-        await page.waitForTimeout(400);
-      }
-      throw new Error(`never reached ${label}`);
+      const enter = game.getByRole("button", { name: label });
+      await enter.waitFor({ timeout: 20_000 });
+      return enter;
     };
     const approve = async () => {
       const confirm = page.getByRole("button", { name: "Confirm preview" });
@@ -44,8 +34,8 @@ await testGame("./games/fortress", {
     const hudText = () => game.locator(".ff-hud").innerText();
 
     // Two Power Cells: one to roll on banking, one spare.
-    await walkTo(175, 128);
-    await (await arriveAt(/^Generator/)).click();
+    await walkTo(170, 120);
+    await (await arriveAt(/^Enter Generator$/)).click();
     for (let i = 0; i < 2; i += 1) {
       await game.getByRole("button", { name: /^Buy one Power Cell/ }).click();
       await approve();
@@ -54,8 +44,8 @@ await testGame("./games/fortress", {
     await game.getByRole("button", { name: "Close Generator" }).click();
     console.log("PASS  bought Power Cells:", (await hudText()).replace(/\s+/g, " "));
 
-    await walkTo(288, 240);
-    await (await arriveAt(/^The Node/)).click();
+    await walkTo(288, 215);
+    await (await arriveAt(/^Enter The Node$/)).click();
     await game.getByRole("button", { name: /^Begin defence run$/ }).click();
     console.log("PASS  run started");
 

@@ -69,3 +69,16 @@
   .ff-hud button{padding:7px}
   .ff-objective{bottom:52px;font-size:11px;padding:6px 10px}
 }
+
+/* A compact prompt covers less walkable ground, which matters most on a phone
+   where tapping is the only way to move. */
+.ff-world .rf-world-prompt{padding:5px 9px;font-size:12px;line-height:1.15}
+.ff-world .rf-world-prompt small{margin-top:1px;font-size:9px}
+@media(max-width:520px){
+  .ff-world .rf-world-prompt{padding:4px 8px;font-size:11px;min-height:0}
+  .ff-world .rf-world-prompt small{font-size:9px}
+}
+
+/* The station action lives in the HUD, so it never covers walkable ground. */
+.ff-enter{animation:ff-enter-pulse 1.6s ease-in-out infinite}
+@keyframes ff-enter-pulse{0%,100%{box-shadow:0 0 0 rgba(0,229,255,0)}50%{box-shadow:0 0 16px rgba(0,229,255,.7)}}
