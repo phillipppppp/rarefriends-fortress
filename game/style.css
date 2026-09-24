@@ -38,11 +38,11 @@
 .ff-game button:disabled{cursor:default;opacity:.4}
 .ff-game button.rf-frame-primary{background:#00e5ff;border-color:#dffbff;color:#04222c;font-weight:700}
 
-.ff-objective{position:absolute;bottom:60px;left:50%;transform:translateX(-50%);
+.ff-objective{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
   max-width:calc(100% - 32px);margin:0;padding:7px 14px;text-align:center;
   font-size:13px;font-weight:700;color:#04222c;background:#00e5ff;border:1px solid #dffbff;
   pointer-events:none;z-index:4}
-.ff-toast{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);margin:0;
+.ff-toast{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);margin:0;
   padding:6px 12px;font-size:12px;background:rgba(8,8,24,.92);border:1px solid rgba(255,224,102,.5);
   color:#ffe066;pointer-events:none;z-index:4}
 
@@ -67,7 +67,7 @@
   .ff-hud{inset:8px 8px auto;gap:5px;font-size:10px}
   .ff-hud span{padding:6px}
   .ff-hud button{padding:7px}
-  .ff-objective{bottom:52px;font-size:11px;padding:6px 10px}
+  .ff-objective{bottom:6px;font-size:11px;padding:5px 9px}
 }
 
 /* A compact prompt covers less walkable ground, which matters most on a phone

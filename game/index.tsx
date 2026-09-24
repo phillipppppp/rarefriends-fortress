@@ -10,8 +10,8 @@ import { maximumPrize, type GameSnapshot, type GamePlay } from "@rarefriends/fri
 import { createFriendSoundKit, type FriendSoundKit } from "@rarefriends/friendsdk/sounds";
 import {
   createRun, startWave, step, rollsFor, placeTurret, dailyModifier,
-  NODE, FRIEND_RANGE, TURRET_COST, TURRET_RANGE, STAGE_WAVES, FINAL_WAVE, NODE_MAX_HP,
-  type Run,
+  NODE, FRIEND_RANGE, TURRETS, MAX_TURRETS, STAGE_WAVES, FINAL_WAVE, NODE_MAX_HP,
+  type Run, type TurretKind,
 } from "./combat.js";
 import "@rarefriends/friendsdk/frame.css";
 import "@rarefriends/friendsdk/world-view.css";
@@ -39,7 +39,7 @@ const rf = (value: bigint) => `${formatGameAmount(value, 18)} RF`;
 type Menu = "generator" | "node" | "result" | null;
 
 /** Draws the run onto a transparent canvas stacked over the SDK world canvas. */
-function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number; y: number }, buildMode: boolean) {
+function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number; y: number }, buildMode: TurretKind | null) {
   context.clearRect(0, 0, VIEW.width, VIEW.height);
   context.save();
   context.translate(-VIEW.x, -VIEW.y);
@@ -68,16 +68,28 @@ function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number;
 
   for (const turret of run.turrets) {
     const [tx, ty] = project(turret.x, turret.y);
-    const reach = TURRET_RANGE + turret.tier * 12;
+    const spec = TURRETS[turret.kind];
+    const reach = spec.range + turret.tier * 12;
     context.beginPath();
     context.ellipse(tx, ty, reach * 1.3, reach * 0.42, 0, 0, Math.PI * 2);
-    context.strokeStyle = "rgba(124,242,255,.16)";
+    context.strokeStyle = turret.kind === "arc" ? "rgba(255,180,255,.18)" : "rgba(124,242,255,.16)";
     context.lineWidth = 1;
     context.stroke();
-    context.fillStyle = "#7fe3ff";
-    context.fillRect(tx - 8, ty - 16, 16, 16);
-    context.fillStyle = "#04222c";
-    context.fillRect(tx - 4, ty - 12, 8, 8);
+    if (turret.kind === "arc") {
+      context.fillStyle = "#f2a6ff";
+      context.beginPath();
+      context.moveTo(tx, ty - 18); context.lineTo(tx + 10, ty - 6);
+      context.lineTo(tx, ty + 4); context.lineTo(tx - 10, ty - 6);
+      context.closePath();
+      context.fill();
+      context.fillStyle = "#2a0a2e";
+      context.fillRect(tx - 3, ty - 10, 6, 6);
+    } else {
+      context.fillStyle = "#7fe3ff";
+      context.fillRect(tx - 8, ty - 16, 16, 16);
+      context.fillStyle = "#04222c";
+      context.fillRect(tx - 4, ty - 12, 8, 8);
+    }
   }
 
   for (const enemy of run.enemies) {
@@ -103,7 +115,7 @@ function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number;
     context.beginPath();
     context.moveTo(sx, sy - 10);
     context.lineTo(tx, ty);
-    context.strokeStyle = shot.power >= 30 ? "rgba(0,229,255,.95)" : "rgba(180,255,220,.9)";
+    context.strokeStyle = shot.power >= 30 ? "rgba(0,229,255,.95)" : "rgba(242,166,255,.9)";
     context.lineWidth = shot.power >= 30 ? 3 : 2;
     context.stroke();
   }
@@ -126,14 +138,14 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [buildMode, setBuildMode] = useState(false);
+  const [buildMode, setBuildMode] = useState<TurretKind | null>(null);
   const [worldNode, setWorldNode] = useState<HTMLDivElement | null>(null);
   const [near, setNear] = useState<null | (typeof STATIONS)[number]>(null);
   const [rewards, setRewards] = useState<readonly GamePlay[]>([]);
   /** Mirrors run state into React for the HUD only; the loop owns the authoritative copy. */
   const [hud, setHud] = useState({
     phase: "briefing" as Run["phase"], wave: 0, nodeHp: NODE_MAX_HP,
-    scrap: 0, enemies: 0, cleared: 0,
+    scrap: 0, enemies: 0, cleared: 0, turrets: 0,
   });
 
   const overlay = useRef<HTMLCanvasElement | null>(null);
@@ -148,7 +160,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
     const version = ++epoch.current;
     sound.current = createFriendSoundKit();
     runRef.current = createRun();
-    setMenu(null); setError(""); setMessage(""); setBuildMode(false); setRewards([]);
+    setMenu(null); setError(""); setMessage(""); setBuildMode(null); setRewards([]);
     void client.read().then(value => { if (version === epoch.current) setSnapshot(value); }).catch(cause => {
       if (version === epoch.current) setError(cause instanceof Error ? cause.message : "Could not load the preview.");
     });
@@ -188,6 +200,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
             setHud({
               phase: run.phase, wave: run.wave, nodeHp: run.nodeHp,
               scrap: run.scrap, enemies: run.enemies.length + run.pending, cleared: run.cleared,
+              turrets: run.turrets.length,
             });
             const reachable = run.phase === "wave" || run.phase === "respite"
               ? null
@@ -195,7 +208,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
             setNear(current => (current?.id === reachable?.id ? current : reachable));
             if ((run.phase === "briefing" && run.wave > 0) || run.phase === "lost") {
               setMenu(current => (current === null ? "node" : current));
-              setBuildMode(false);
+              setBuildMode(null);
             }
           }
         }
@@ -288,11 +301,11 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
     const canvasX = VIEW.x + ((event.clientX - box.left) / box.width) * VIEW.width;
     const canvasY = VIEW.y + ((event.clientY - box.top) / box.height) * VIEW.height;
     const [wx, wy] = unproject(canvasX, canvasY);
-    if (placeTurret(runRef.current, wx, wy)) {
+    if (placeTurret(runRef.current, wx, wy, buildMode)) {
       sound.current?.play("purchase");
-      setMessage("Turret online.");
+      setMessage(`${TURRETS[buildMode].label} online. ${TURRETS[buildMode].blurb}`);
     } else {
-      setMessage(`Needs ${TURRET_COST} scrap, and space away from the node and other turrets.`);
+      setMessage(`Needs ${TURRETS[buildMode].cost} scrap, and space away from the node and other turrets.`);
     }
   };
 
@@ -330,6 +343,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               <span className="ff-wave">Wave {hud.wave}</span>
               <span className={hud.nodeHp <= 25 ? "ff-danger" : ""}>Node {hud.nodeHp}</span>
               <span>Scrap {hud.scrap}</span>
+              <span>Turrets {hud.turrets}/{MAX_TURRETS}</span>
               <span>Left {hud.enemies}</span>
             </>
           )}
@@ -342,24 +356,26 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               Enter {near.label}
             </button>
           )}
-          {fighting && (
+          {fighting && (Object.keys(TURRETS) as TurretKind[]).map(kind => (
             <button
+              key={kind}
               type="button"
-              className={buildMode ? "rf-frame-primary" : ""}
-              onClick={() => { setBuildMode(value => !value); setMessage(""); }}
+              className={buildMode === kind ? "rf-frame-primary" : ""}
+              disabled={hud.scrap < TURRETS[kind].cost && buildMode !== kind}
+              onClick={() => { setBuildMode(value => (value === kind ? null : kind)); setMessage(""); }}
             >
-              {buildMode ? "Done building" : `Build · ${TURRET_COST}`}
+              {buildMode === kind ? `Done · ${TURRETS[kind].label}` : `${TURRETS[kind].label} · ${TURRETS[kind].cost}`}
             </button>
-          )}
+          ))}
         </div>
 
-        <p className="ff-objective">
+        {hud.phase !== "wave" && <p className="ff-objective">
           {fighting
-            ? buildMode ? "Tap open ground near the node to place a turret" : "Stay near the node — your Friend fires automatically"
+            ? buildMode ? `Tap open ground to place a ${TURRETS[buildMode].label} turret` : "Stay near the node — your Friend fires automatically"
             : near ? `Tap Enter ${near.label}, or press E`
             : snapshot.consumables < 1n ? "Walk to the Generator to buy a Power Cell"
             : "Walk to the Node to begin a defence run"}
-        </p>
+        </p>}
         {message && <p className="ff-toast" role="status">{message}</p>}
       </div>
 
@@ -444,6 +460,10 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               <p>Your Friend defends the node, firing automatically at anything in range. Position is the whole skill.</p>
               <p>Today: <strong>{modifier.current.name}</strong> — {modifier.current.blurb}</p>
               <p>Clear wave 3 to earn a roll, wave 6 for two, wave 9 for three. Each roll spends one Power Cell.</p>
+              <p className="ff-note">
+                Scrap earned inside a run buys turrets: <strong>Pulse</strong> ({TURRETS.pulse.cost}) is single
+                target with a steady rate, <strong>Arc</strong> ({TURRETS.arc.cost}) has shorter reach but hits a cluster.
+              </p>
               <button
                 type="button"
                 className="rf-frame-primary"

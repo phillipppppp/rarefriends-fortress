@@ -10,7 +10,17 @@ export type Enemy = {
   speed: number; damage: number; scrap: number; kind: "mote" | "shard" | "hulk";
 };
 export type Shot = { id: number; x: number; y: number; tx: number; ty: number; life: number; power: number };
-export type Turret = { id: number; x: number; y: number; tier: number; cooldown: number };
+export type TurretKind = "pulse" | "arc";
+export type Turret = { id: number; x: number; y: number; tier: number; cooldown: number; kind: TurretKind };
+
+/**
+ * Pulse is the reliable single-target option. Arc trades range and rate for hitting a
+ * cluster at once, which is what makes placement a decision rather than a formality.
+ */
+export const TURRETS: Record<TurretKind, { label: string; cost: number; range: number; power: number; cooldown: number; splash: number; blurb: string }> = {
+  pulse: { label: "Pulse", cost: 14, range: 78, power: 18, cooldown: 0.9, splash: 0, blurb: "Single target, steady rate." },
+  arc: { label: "Arc", cost: 24, range: 62, power: 13, cooldown: 1.25, splash: 34, blurb: "Shorter reach, hits a cluster." },
+};
 
 export type RunPhase = "briefing" | "wave" | "respite" | "lost" | "banked";
 
@@ -188,12 +198,20 @@ export function step(run: Run, dt: number, friend: Vec, modifier: Modifier = dai
   for (const turret of run.turrets) {
     turret.cooldown -= dt;
     if (turret.cooldown > 0) continue;
-    const target = nearestTo(turret.x, turret.y, TURRET_RANGE + turret.tier * 12);
+    const spec = TURRETS[turret.kind];
+    const target = nearestTo(turret.x, turret.y, spec.range + turret.tier * 12);
     if (!target) continue;
-    const power = 18 + turret.tier * 15;
+    const power = spec.power + turret.tier * 15;
     run.shots.push({ id: run.nextId++, x: turret.x, y: turret.y, tx: target.x, ty: target.y, life: 0.12, power });
     target.hp -= power;
-    turret.cooldown = TURRET_COOLDOWN;
+    // Arc carries into anything clustered around the target.
+    if (spec.splash > 0) {
+      for (const other of run.enemies) {
+        if (other === target || other.hp <= 0) continue;
+        if (distance(other.x, other.y, target.x, target.y) <= spec.splash) other.hp -= Math.round(power * 0.6);
+      }
+    }
+    turret.cooldown = spec.cooldown;
   }
 
   for (const shot of run.shots) shot.life -= dt;
@@ -238,17 +256,17 @@ export function rollsFor(cleared: number) {
   return 0;
 }
 
-export function canPlaceTurret(run: Run, x: number, y: number) {
-  if (run.scrap < TURRET_COST) return false;
+export function canPlaceTurret(run: Run, x: number, y: number, kind: TurretKind = "pulse") {
+  if (run.scrap < TURRETS[kind].cost) return false;
   if (run.turrets.length >= MAX_TURRETS) return false;
   if (distance(x, y, NODE.x, NODE.y) < 28) return false;
   return run.turrets.every(turret => distance(turret.x, turret.y, x, y) > 34);
 }
 
-export function placeTurret(run: Run, x: number, y: number) {
-  if (!canPlaceTurret(run, x, y)) return false;
-  run.scrap -= TURRET_COST;
-  run.turrets.push({ id: run.nextId++, x, y, tier: 1, cooldown: 0 });
+export function placeTurret(run: Run, x: number, y: number, kind: TurretKind = "pulse") {
+  if (!canPlaceTurret(run, x, y, kind)) return false;
+  run.scrap -= TURRETS[kind].cost;
+  run.turrets.push({ id: run.nextId++, x, y, tier: 1, cooldown: 0, kind });
   return true;
 }
 
