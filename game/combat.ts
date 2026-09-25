@@ -65,6 +65,10 @@ export const gunCooldown = (level: number) => FRIEND_COOLDOWN * Math.pow(0.94, l
  * Cells recoverable as rolls at each depth. Everything staked beyond this is forfeited,
  * so the stake is a bet on how far the run will get.
  */
+/** Cells to take a turret from its current level to the next, indexed from level 1. */
+export const TURRET_STEP = [1, 1, 1, 1, 2, 2, 2];
+export const turretStepCost = (level: number) => TURRET_STEP[level - 1] ?? 0;
+
 export const ROLLS_AT: Readonly<Record<number, number>> = { 3: 3, 6: 7, 9: 11 };
 
 export const NODE: Vec = { x: 288, y: 192 };
@@ -288,6 +292,15 @@ export function upgradeGun(run: Run) {
   return true;
 }
 
+/** The single reason a turret cannot go here, or null when it can. */
+export function placementProblem(run: Run, x: number, y: number, kind: TurretKind = "pulse"): string | null {
+  if (run.turrets.length >= MAX_TURRETS) return "Turret limit reached — merge two turrets to free a slot.";
+  if (run.scrap < TURRETS[kind].cost) return `Needs ${TURRETS[kind].cost} scrap for a ${TURRETS[kind].label}. You have ${run.scrap}.`;
+  if (distance(x, y, NODE.x, NODE.y) < 28) return "Too close to the node.";
+  if (run.turrets.some(turret => distance(turret.x, turret.y, x, y) <= 34)) return "Too close to another turret.";
+  return null;
+}
+
 export function canPlaceTurret(run: Run, x: number, y: number, kind: TurretKind = "pulse") {
   if (run.scrap < TURRETS[kind].cost) return false;
   if (run.turrets.length >= MAX_TURRETS) return false;
@@ -302,10 +315,40 @@ export function placeTurret(run: Run, x: number, y: number, kind: TurretKind = "
   return true;
 }
 
+/** Upgrading a turret costs Cells, which the caller stakes. */
 export function upgradeTurret(run: Run, id: number) {
   const turret = run.turrets.find(item => item.id === id);
-  if (!turret || turret.tier >= 3 || run.scrap < TURRET_UPGRADE_COST) return false;
-  run.scrap -= TURRET_UPGRADE_COST;
+  if (!turret || turret.tier >= MAX_LEVEL) return false;
   turret.tier += 1;
   return true;
+}
+
+/** The partner a turret can merge with: same kind, same level, nearest first. */
+export function mergePartner(run: Run, id: number) {
+  const turret = run.turrets.find(item => item.id === id);
+  if (!turret || turret.tier >= MAX_LEVEL) return null;
+  return run.turrets
+    .filter(other => other.id !== id && other.kind === turret.kind && other.tier === turret.tier)
+    .sort((a, b) =>
+      distance(a.x, a.y, turret.x, turret.y) - distance(b.x, b.y, turret.x, turret.y))[0] ?? null;
+}
+
+/** Merging is free: two same-kind, same-level turrets become one a level higher. */
+export function mergeTurrets(run: Run, id: number) {
+  const turret = run.turrets.find(item => item.id === id);
+  const partner = mergePartner(run, id);
+  if (!turret || !partner) return false;
+  run.turrets = run.turrets.filter(item => item.id !== partner.id);
+  turret.tier += 1;
+  return true;
+}
+
+/** The turret under a tap, if any. */
+export function turretAt(run: Run, x: number, y: number, reach = 26) {
+  let best: Turret | null = null, bestAway = reach;
+  for (const turret of run.turrets) {
+    const away = distance(turret.x, turret.y, x, y);
+    if (away <= bestAway) { best = turret; bestAway = away; }
+  }
+  return best;
 }

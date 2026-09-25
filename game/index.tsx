@@ -12,6 +12,7 @@ import {
   createRun, startWave, step, rollsFor, placeTurret, dailyModifier,
   NODE, FRIEND_RANGE, TURRETS, MAX_TURRETS, STAGE_WAVES, FINAL_WAVE, NODE_MAX_HP,
   MAX_LEVEL, ROLLS_AT, gunStepCost, gunPower, gunCooldown, upgradeGun,
+  placementProblem, turretAt, mergePartner, mergeTurrets, upgradeTurret, turretStepCost,
   type Run, type TurretKind,
 } from "./combat.js";
 import "@rarefriends/friendsdk/frame.css";
@@ -40,7 +41,7 @@ const rf = (value: bigint) => `${formatGameAmount(value, 18)} RF`;
 type Menu = "generator" | "node" | "result" | "settings" | null;
 
 /** Draws the run onto a transparent canvas stacked over the SDK world canvas. */
-function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number; y: number }, buildMode: TurretKind | null) {
+function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number; y: number }, buildMode: TurretKind | null, selected: number | null, partnerId: number | null) {
   context.clearRect(0, 0, VIEW.width, VIEW.height);
   context.save();
   context.translate(-VIEW.x, -VIEW.y);
@@ -76,6 +77,20 @@ function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number;
     context.strokeStyle = turret.kind === "arc" ? "rgba(255,180,255,.18)" : "rgba(124,242,255,.16)";
     context.lineWidth = 1;
     context.stroke();
+    if (turret.id === selected || turret.id === partnerId) {
+      context.setLineDash(turret.id === selected ? [] : [5, 4]);
+      context.strokeStyle = turret.id === selected ? "#ffe066" : "rgba(255,224,102,.75)";
+      context.lineWidth = 2.5;
+      context.beginPath();
+      context.ellipse(tx, ty - 6, 22, 16, 0, 0, Math.PI * 2);
+      context.stroke();
+      context.setLineDash([]);
+    }
+    // Level pips, so a turret shows its rank without being tapped.
+    context.fillStyle = "#ffe066";
+    for (let pip = 0; pip < turret.tier; pip += 1) {
+      context.fillRect(tx - 10 + pip * 5, ty + 6, 3, 3);
+    }
     if (turret.kind === "arc") {
       context.fillStyle = "#f2a6ff";
       context.beginPath();
@@ -165,16 +180,19 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
    * the maximum prize of backing until it is settled, which is why they are settled the
    * moment a run ends rather than left hanging.
    */
+  /** The frame loop reads the selection from a ref so it never has to resubscribe. */
+  const selectedRef = useRef<{ id: number | null; partner: number | null }>({ id: null, partner: null });
   const pending = useRef<bigint[]>([]);
   const [staked, setStaked] = useState(0);
   const [forfeited, setForfeited] = useState<readonly GamePlay[]>([]);
+  const [selected, setSelected] = useState<number | null>(null);
 
   useEffect(() => {
     const version = ++epoch.current;
     sound.current = createFriendSoundKit();
     runRef.current = createRun();
     setMenu(null); setError(""); setMessage(""); setBuildMode(null); setRewards([]);
-    pending.current = []; setStaked(0); setForfeited([]);
+    pending.current = []; setStaked(0); setForfeited([]); setSelected(null);
     void client.read().then(value => { if (version === epoch.current) setSnapshot(value); }).catch(cause => {
       if (version === epoch.current) setError(cause instanceof Error ? cause.message : "Could not load the preview.");
     });
@@ -225,7 +243,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
             if (events.lost) sound.current?.play("reveal-legendary");
           }
           const context = surface.getContext("2d");
-          if (context) paint(context, run, { x: fx, y: fy }, buildMode);
+          if (context) paint(context, run, { x: fx, y: fy }, buildMode, selectedRef.current.id, selectedRef.current.partner);
 
           hudTimer -= dt;
           if (hudTimer <= 0) {
@@ -263,6 +281,28 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [menu, paused, near]);
+
+  useEffect(() => {
+    if (!worldNode) return;
+    const canvas = worldNode.querySelector("canvas");
+    if (!canvas) return;
+    const onDown = (event: PointerEvent) => {
+      if (buildMode || menu !== null || paused) return;
+      const box = canvas.getBoundingClientRect();
+      const canvasX = VIEW.x + ((event.clientX - box.left) / box.width) * VIEW.width;
+      const canvasY = VIEW.y + ((event.clientY - box.top) / box.height) * VIEW.height;
+      const [wx, wy] = unproject(canvasX, canvasY);
+      const hit = turretAt(runRef.current, wx, wy);
+      if (!hit) { setSelected(null); return; }
+      // Consume it, so the same tap does not also order a walk.
+      event.stopPropagation();
+      event.preventDefault();
+      setSelected(hit.id);
+      sound.current?.play("select");
+    };
+    canvas.addEventListener("pointerdown", onDown, true);
+    return () => canvas.removeEventListener("pointerdown", onDown, true);
+  }, [worldNode, buildMode, menu, paused]);
 
   async function act(work: () => Promise<void>, after?: () => void) {
     if (locked.current || paused) return;
@@ -381,24 +421,55 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
     });
   };
 
+  const selectedTurret = runRef.current.turrets.find(turret => turret.id === selected) ?? null;
+  const partner = selected === null ? null : mergePartner(runRef.current, selected);
+
+  const doMerge = () => {
+    if (selected === null) return;
+    if (!mergeTurrets(runRef.current, selected)) return;
+    sound.current?.play("reward");
+    setMessage("Merged. Two turrets became one a level higher, freeing a slot.");
+  };
+
+  const doUpgradeTurret = () => {
+    const turret = selectedTurret;
+    if (!turret || turret.tier >= MAX_LEVEL) return;
+    const cost = turretStepCost(turret.tier);
+    if (snapshot.consumables < BigInt(cost)) {
+      setMessage(`Needs ${cost} Power Cell${cost === 1 ? "" : "s"}. Buy more at the Generator between runs.`);
+      return;
+    }
+    void act(async () => {
+      await stakeCells(cost);
+      upgradeTurret(runRef.current, turret.id);
+      sound.current?.play("purchase");
+      setMessage(`Turret level ${turret.tier}. ${cost} Cell${cost === 1 ? "" : "s"} staked — simulated, recoverable as rolls if you reach depth.`);
+    });
+  };
+
+  selectedRef.current = { id: selected, partner: partner?.id ?? null };
+
   const pushOn = () => {
     sound.current?.play("action-start");
     startWave(runRef.current, hud.cleared + 1);
     setMenu(null);
   };
 
-  const onBuildClick = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!buildMode) return;
+  const onOverlayPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
     const canvasX = VIEW.x + ((event.clientX - box.left) / box.width) * VIEW.width;
     const canvasY = VIEW.y + ((event.clientY - box.top) / box.height) * VIEW.height;
     const [wx, wy] = unproject(canvasX, canvasY);
-    if (placeTurret(runRef.current, wx, wy, buildMode)) {
+
+    if (buildMode) {
+      const problem = placementProblem(runRef.current, wx, wy, buildMode);
+      if (problem) { setMessage(problem); return; }
+      placeTurret(runRef.current, wx, wy, buildMode);
       sound.current?.play("purchase");
       setMessage(`${TURRETS[buildMode].label} online. ${TURRETS[buildMode].blurb}`);
-    } else {
-      setMessage(`Needs ${TURRETS[buildMode].cost} scrap, and space away from the node and other turrets.`);
+      return;
     }
+
   };
 
   const stageEnd = STAGE_WAVES.includes(hud.cleared);
@@ -426,7 +497,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
           width={VIEW.width}
           height={VIEW.height}
           aria-hidden="true"
-          onPointerDown={onBuildClick}
+          onPointerDown={onOverlayPointer}
         />
 
         <div className="ff-hud">
@@ -482,6 +553,34 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
             : snapshot.consumables < 1n ? "Walk to the Generator to buy a Power Cell"
             : "Walk to the Node to begin a defence run"}
         </p>}
+        {selectedTurret && fighting && (
+          <div className="ff-selected" role="group" aria-label="Selected turret">
+            <span className="ff-selected-name">
+              <strong>{TURRETS[selectedTurret.kind].label} · L{selectedTurret.tier}/{MAX_LEVEL}</strong>
+              <small>{TURRETS[selectedTurret.kind].blurb}</small>
+            </span>
+            <span className="ff-selected-actions">
+              <button
+                type="button"
+                disabled={busy || paused || !partner}
+                title={partner ? "Combine with a matching turret" : "Needs another turret of the same type and level"}
+                onClick={doMerge}
+              >
+                Merge{partner ? "" : " ✕"}
+              </button>
+              <button
+                type="button"
+                disabled={busy || paused || selectedTurret.tier >= MAX_LEVEL || snapshot.consumables < BigInt(turretStepCost(selectedTurret.tier))}
+                onClick={doUpgradeTurret}
+              >
+                {selectedTurret.tier >= MAX_LEVEL
+                  ? "Max level"
+                  : `Upgrade · ${turretStepCost(selectedTurret.tier)} Cell${turretStepCost(selectedTurret.tier) === 1 ? "" : "s"}`}
+              </button>
+              <button type="button" onClick={() => setSelected(null)} aria-label="Deselect turret">✕</button>
+            </span>
+          </div>
+        )}
         {message && <p className="ff-toast" role="status">{message}</p>}
       </div>
 
