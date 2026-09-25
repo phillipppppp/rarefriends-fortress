@@ -18,8 +18,8 @@ export type Turret = { id: number; x: number; y: number; tier: number; cooldown:
  * cluster at once, which is what makes placement a decision rather than a formality.
  */
 export const TURRETS: Record<TurretKind, { label: string; cost: number; range: number; power: number; cooldown: number; splash: number; blurb: string }> = {
-  pulse: { label: "Pulse", cost: 14, range: 78, power: 18, cooldown: 0.9, splash: 0, blurb: "Single target, steady rate." },
-  arc: { label: "Arc", cost: 24, range: 62, power: 13, cooldown: 1.25, splash: 34, blurb: "Shorter reach, hits a cluster." },
+  pulse: { label: "Pulse", cost: 30, range: 78, power: 18, cooldown: 0.9, splash: 0, blurb: "Single target, steady rate." },
+  arc: { label: "Arc", cost: 50, range: 62, power: 13, cooldown: 1.25, splash: 34, blurb: "Shorter reach, hits a cluster." },
 };
 
 export type RunPhase = "briefing" | "wave" | "respite" | "lost" | "banked";
@@ -40,6 +40,8 @@ export type Run = {
   friendCooldown: number;
   /** Gun level, 1 to MAX_LEVEL. Resets with every run. */
   gun: number;
+  /** Repairs bought this run; each one makes the next dearer. */
+  repairs: number;
   nextId: number;
   /** Deepest wave fully cleared. The reward is paid against this. */
   cleared: number;
@@ -52,7 +54,7 @@ export const MAX_LEVEL = 8;
  * Cumulative to level 8 is 12, against a backing ceiling of 11 pending plays, so a full
  * build is deliberately just out of reach in one run.
  */
-export const GUN_STEP = [1, 1, 1, 2, 2, 2, 3];
+export const GUN_STEP = [0, 0, 0, 2, 2, 3, 3];
 export const gunStepCost = (level: number) => GUN_STEP[level - 1] ?? 0;
 export const gunTotalCost = (level: number) =>
   GUN_STEP.slice(0, Math.max(0, level - 1)).reduce((total, cost) => total + cost, 0);
@@ -67,6 +69,23 @@ export const gunCooldown = (level: number) => FRIEND_COOLDOWN * Math.pow(0.94, l
  */
 /** Cells to take a turret from its current level to the next, indexed from level 1. */
 export const TURRET_STEP = [1, 1, 1, 1, 2, 2, 2];
+
+/**
+ * Gun levels 2 to 4 are bought with scrap and can be taken mid-wave; 5 to 8 stake Cells
+ * between waves. Scrap costs escalate because scrap income grows steeply with depth, so a
+ * flat price stops competing with anything by wave 6.
+ */
+export const GUN_SCRAP = [25, 45, 75];
+export const gunScrapCost = (level: number) => GUN_SCRAP[level - 1] ?? 0;
+export const GUN_SCRAP_MAX = 4;
+
+/** Node repair: a steady heal whose price climbs, so late scrap still has somewhere to go. */
+export const REPAIR_HP = 15;
+export const repairCost = (used: number) => 20 + used * 10;
+
+/** Each turret already standing makes the next one dearer. */
+export const turretCost = (run: Run, kind: TurretKind) =>
+  Math.round(TURRETS[kind].cost * Math.pow(1.6, run.turrets.length));
 export const turretStepCost = (level: number) => TURRET_STEP[level - 1] ?? 0;
 
 export const ROLLS_AT: Readonly<Record<number, number>> = { 3: 3, 6: 7, 9: 11 };
@@ -85,7 +104,7 @@ export const MAX_TURRETS = 5;
  * Difficulty knobs, kept together and mutable so the balance simulation can sweep them.
  * Gameplay never writes to this; only the tuning harness does.
  */
-export const TUNING = { countPerWave: 2.15, hpGrowth: 0.23, burstFloor: 0.17 };
+export const TUNING = { countPerWave: 2.15, hpGrowth: 0.26, burstFloor: 0.17 };
 export const NODE_MAX_HP = 100;
 export const RESPITE_SECONDS = 6;
 /** Waves that end a stage, where the player may bank or push on. */
@@ -102,7 +121,7 @@ export function createRun(): Run {
   return {
     phase: "briefing", wave: 0, pending: 0, spawnTimer: 0, respiteTimer: 0,
     nodeHp: NODE_MAX_HP, nodeMaxHp: NODE_MAX_HP, scrap: 0,
-    enemies: [], shots: [], turrets: [], friendCooldown: 0, gun: 1, nextId: 1, cleared: 0,
+    enemies: [], shots: [], turrets: [], friendCooldown: 0, gun: 1, repairs: 0, nextId: 1, cleared: 0,
   };
 }
 
@@ -285,6 +304,26 @@ export function rollsFor(cleared: number) {
   return 0;
 }
 
+/** Spends scrap on the early gun levels, which are available even mid-wave. */
+export function upgradeGunWithScrap(run: Run) {
+  if (run.gun >= GUN_SCRAP_MAX) return false;
+  const cost = gunScrapCost(run.gun);
+  if (run.scrap < cost) return false;
+  run.scrap -= cost;
+  run.gun += 1;
+  return true;
+}
+
+/** Repairs the node. Never overheals, and each repair makes the next dearer. */
+export function repairNode(run: Run) {
+  const cost = repairCost(run.repairs);
+  if (run.scrap < cost || run.nodeHp >= run.nodeMaxHp) return false;
+  run.scrap -= cost;
+  run.repairs += 1;
+  run.nodeHp = Math.min(run.nodeMaxHp, run.nodeHp + REPAIR_HP);
+  return true;
+}
+
 /** Upgrades the gun if the level allows it. The caller pays the Cells. */
 export function upgradeGun(run: Run) {
   if (run.gun >= MAX_LEVEL) return false;
@@ -295,14 +334,15 @@ export function upgradeGun(run: Run) {
 /** The single reason a turret cannot go here, or null when it can. */
 export function placementProblem(run: Run, x: number, y: number, kind: TurretKind = "pulse"): string | null {
   if (run.turrets.length >= MAX_TURRETS) return "Turret limit reached — merge two turrets to free a slot.";
-  if (run.scrap < TURRETS[kind].cost) return `Needs ${TURRETS[kind].cost} scrap for a ${TURRETS[kind].label}. You have ${run.scrap}.`;
+  const price = turretCost(run, kind);
+  if (run.scrap < price) return `Needs ${price} scrap for a ${TURRETS[kind].label}. You have ${run.scrap}.`;
   if (distance(x, y, NODE.x, NODE.y) < 28) return "Too close to the node.";
   if (run.turrets.some(turret => distance(turret.x, turret.y, x, y) <= 34)) return "Too close to another turret.";
   return null;
 }
 
 export function canPlaceTurret(run: Run, x: number, y: number, kind: TurretKind = "pulse") {
-  if (run.scrap < TURRETS[kind].cost) return false;
+  if (run.scrap < turretCost(run, kind)) return false;
   if (run.turrets.length >= MAX_TURRETS) return false;
   if (distance(x, y, NODE.x, NODE.y) < 28) return false;
   return run.turrets.every(turret => distance(turret.x, turret.y, x, y) > 34);
@@ -310,7 +350,7 @@ export function canPlaceTurret(run: Run, x: number, y: number, kind: TurretKind 
 
 export function placeTurret(run: Run, x: number, y: number, kind: TurretKind = "pulse") {
   if (!canPlaceTurret(run, x, y, kind)) return false;
-  run.scrap -= TURRETS[kind].cost;
+  run.scrap -= turretCost(run, kind);
   run.turrets.push({ id: run.nextId++, x, y, tier: 1, cooldown: 0, kind });
   return true;
 }

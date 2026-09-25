@@ -93,14 +93,37 @@ The top prize is deliberately **5 RF rather than 10**. A pending play holds the 
 backing until it settles, so an 8.1 RF prize capped the stake at ten pending plays; 5 RF allows
 eleven while keeping expected reward at exactly 0.900.
 
-### Upgrade costs, in Cells
 
-| Level | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
-|---|---|---|---|---|---|---|---|
-| Gun (cumulative) | 1 | 2 | 3 | 5 | 7 | 9 | 12 |
+### Two currencies, deliberately
 
-Damage and fire rate both improve, so an upgraded gun feels different rather than merely bigger.
-**Upgrades reset with every run**, which is the point: the spend recurs rather than happening once.
+**Scrap** is earned inside a run and never costs RF. **Cells** cost RF and are staked.
+
+| Bought with scrap | Cost |
+|---|---|
+| Gun levels 2–4 | 25 / 45 / 75 — available any time, including mid-wave |
+| Turret placement | base × 1.6 per turret standing: Pulse 30 → 48 → 77 → 123 → 197 |
+| Node repair (+15 HP) | 20, rising by 10 each time |
+
+| Staked in Cells | Cost |
+|---|---|
+| Gun levels 5–8 | 2 / 2 / 3 / 3 — between waves only |
+| Turret upgrades | 1 / 1 / 1 / 1 / 2 / 2 / 2 |
+| Merging | free |
+
+Scrap income climbs steeply — about 120 by wave 3 and 819 by wave 9 — so every scrap cost
+**escalates**. A flat price stops competing with anything by wave 6. At 120 scrap you can afford
+two Pulses, *or* gun L2+L3, *or* three repairs, never all three.
+
+**Staking is what unlocks the deepest wave.** Simulated over 24 runs per profile:
+
+| Build | Clears wave 9 |
+|---|---|
+| Scrap only, gun capped at L4 | **0%** |
+| Staked build, gun to L8 | **≈80%** |
+
+A scrap-only run reliably clears waves 3 and 6 and then dies around wave 7. Only a run that
+stakes Cells on gun levels 5–8 reaches wave 9, and even then it fails about one time in five —
+so the stake is a real bet, not a formality.
 
 ### What happens to pending plays
 

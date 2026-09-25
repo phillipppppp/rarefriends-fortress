@@ -13,6 +13,7 @@ import {
   NODE, FRIEND_RANGE, TURRETS, MAX_TURRETS, STAGE_WAVES, FINAL_WAVE, NODE_MAX_HP,
   MAX_LEVEL, ROLLS_AT, gunStepCost, gunPower, gunCooldown, upgradeGun,
   placementProblem, turretAt, mergePartner, mergeTurrets, upgradeTurret, turretStepCost,
+  gunScrapCost, GUN_SCRAP_MAX, upgradeGunWithScrap, repairCost, repairNode, REPAIR_HP, turretCost,
   type Run, type TurretKind,
 } from "./combat.js";
 import "@rarefriends/friendsdk/frame.css";
@@ -163,7 +164,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   /** Mirrors run state into React for the HUD only; the loop owns the authoritative copy. */
   const [hud, setHud] = useState({
     phase: "briefing" as Run["phase"], wave: 0, nodeHp: NODE_MAX_HP,
-    scrap: 0, enemies: 0, cleared: 0, turrets: 0, gun: 1,
+    scrap: 0, enemies: 0, cleared: 0, turrets: 0, gun: 1, repairs: 0, nodeMax: NODE_MAX_HP,
   });
 
   const overlay = useRef<HTMLCanvasElement | null>(null);
@@ -251,7 +252,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
             setHud({
               phase: run.phase, wave: run.wave, nodeHp: run.nodeHp,
               scrap: run.scrap, enemies: run.enemies.length + run.pending, cleared: run.cleared,
-              turrets: run.turrets.length, gun: run.gun,
+              turrets: run.turrets.length, gun: run.gun, repairs: run.repairs, nodeMax: run.nodeMaxHp,
             });
             const reachable = run.phase === "wave" || run.phase === "respite"
               ? null
@@ -405,6 +406,26 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
       }
     });
 
+  const buyGunWithScrap = () => {
+    if (!upgradeGunWithScrap(runRef.current)) {
+      setMessage(`Needs ${gunScrapCost(runRef.current.gun)} scrap. You have ${runRef.current.scrap}.`);
+      return;
+    }
+    sound.current?.play("purchase");
+    setMessage(`Gun level ${runRef.current.gun}, bought with scrap.`);
+  };
+
+  const buyRepair = () => {
+    const run = runRef.current;
+    if (run.nodeHp >= run.nodeMaxHp) { setMessage("The node is already at full strength."); return; }
+    if (!repairNode(run)) {
+      setMessage(`Needs ${repairCost(run.repairs)} scrap to repair. You have ${run.scrap}.`);
+      return;
+    }
+    sound.current?.play("action-ready");
+    setMessage(`Node repaired by ${REPAIR_HP}. The next repair costs ${repairCost(runRef.current.repairs)}.`);
+  };
+
   const buyGunUpgrade = () => {
     const run = runRef.current;
     if (run.gun >= MAX_LEVEL) return;
@@ -524,12 +545,32 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
             </button>
           )}
           {fighting && hud.gun < MAX_LEVEL && (
+            hud.gun < GUN_SCRAP_MAX ? (
+              <button
+                type="button"
+                disabled={busy || paused || hud.scrap < gunScrapCost(hud.gun)}
+                onClick={buyGunWithScrap}
+              >
+                Gun L{hud.gun + 1} · {gunScrapCost(hud.gun)} scrap
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={busy || paused || hud.phase === "wave" || snapshot.consumables < BigInt(gunStepCost(hud.gun))}
+                title={hud.phase === "wave" ? "Cell upgrades are bought between waves" : undefined}
+                onClick={buyGunUpgrade}
+              >
+                Gun L{hud.gun + 1} · {gunStepCost(hud.gun)} Cell{gunStepCost(hud.gun) === 1 ? "" : "s"}
+              </button>
+            )
+          )}
+          {fighting && hud.nodeHp < hud.nodeMax && (
             <button
               type="button"
-              disabled={busy || paused || snapshot.consumables < BigInt(gunStepCost(hud.gun))}
-              onClick={buyGunUpgrade}
+              disabled={busy || paused || hud.scrap < repairCost(hud.repairs)}
+              onClick={buyRepair}
             >
-              Gun L{hud.gun + 1} · {gunStepCost(hud.gun)} Cell{gunStepCost(hud.gun) === 1 ? "" : "s"}
+              Repair +{REPAIR_HP} · {repairCost(hud.repairs)} scrap
             </button>
           )}
           {fighting && (Object.keys(TURRETS) as TurretKind[]).map(kind => (
@@ -537,10 +578,10 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               key={kind}
               type="button"
               className={buildMode === kind ? "rf-frame-primary" : ""}
-              disabled={hud.scrap < TURRETS[kind].cost && buildMode !== kind}
+              disabled={hud.scrap < turretCost(runRef.current, kind) && buildMode !== kind}
               onClick={() => { setBuildMode(value => (value === kind ? null : kind)); setMessage(""); }}
             >
-              {buildMode === kind ? `Done · ${TURRETS[kind].label}` : `${TURRETS[kind].label} · ${TURRETS[kind].cost}`}
+              {buildMode === kind ? `Done · ${TURRETS[kind].label}` : `${TURRETS[kind].label} · ${turretCost(runRef.current, kind)}`}
             </button>
           ))}
         </div>
