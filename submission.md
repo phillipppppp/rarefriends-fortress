@@ -127,6 +127,8 @@ left hanging, and purchases never silently stop working.
 
 The SDK paints the Friend onto its own `<canvas>`, so combat is drawn on a second transparent canvas stacked exactly over it. Each frame reads the live Friend position the runtime publishes and projects enemies, beams, turrets and the node through the SDK's exported `project()`. Nothing reaches into the SDK canvas, the parent page, or the wallet.
 
+A **How to Play** card opens on load, before anything else: four lines covering the goal, the controls, what scrap buys and the bank-or-push choice. It names taps on a phone and keys on a desktop, chosen by media query rather than guessed from the device. It closes with **Got it**, the **X** or **Escape**, and the **?** in the HUD reopens it. The primary action sits in the menu's pinned footer, because at 390px the scrolling body is only ~131px tall and a button placed inline sat below the fold.
+
 Four decorative effects sit on top of that: a white flash on an enemy that survives a hit, a ring burst where one dies, a wave-number banner, and an edge pulse when the gun levels. **None of them touch `combat.ts`** — hits are detected by comparing health between frames in the renderer, so the simulation remains the only thing that decides balance. **Reduced motion removes them rather than freezing them**, and the frame loop reads that setting through a ref so toggling it never restarts the loop. At 390px the game holds the display's full **60fps with a 17ms median and 95th-percentile frame**, and the cost of the effects is measured by repeating the reading with reduced motion on and comparing: **within ±2%, which is noise**. Bursts are capped at 24 so a heavy wave cannot grow the draw list without bound.
 
 ## Difficulty, measured rather than guessed

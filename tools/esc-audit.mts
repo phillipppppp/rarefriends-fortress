@@ -11,6 +11,12 @@ const menuOpen = (game: any) => game.locator(".rf-frame-menu").count();
 await testGame("./games/ascension", {
   timeout: 45_000,
   check: async ({ page, game }) => {
+      // How to Play opens on load, so every suite dismisses it before touching the world.
+      const helpGotIt = game.getByRole("button", { name: /^Got it$/ });
+      if (await helpGotIt.count() > 0) {
+        await helpGotIt.click();
+        await helpGotIt.waitFor({ state: "detached", timeout: 8000 });
+      }
     console.log("\n=== ascension ===");
     assert.equal(await menuOpen(game), 0, "nothing should be open at the start");
     await page.keyboard.press("Escape");
@@ -38,6 +44,12 @@ await testGame("./games/ascension", {
 await testGame("./games/fortress", {
   timeout: 120_000,
   check: async ({ page, game }) => {
+      // How to Play opens on load, so every suite dismisses it before touching the world.
+      const helpGotIt = game.getByRole("button", { name: /^Got it$/ });
+      if (await helpGotIt.count() > 0) {
+        await helpGotIt.click();
+        await helpGotIt.waitFor({ state: "detached", timeout: 8000 });
+      }
     console.log("\n=== fortress ===");
     const canvas = game.locator("canvas").first();
     const overlay = game.locator(".ff-overlay");

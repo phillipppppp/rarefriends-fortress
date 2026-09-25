@@ -39,7 +39,7 @@ const STATIONS = [
 const VIEW = { x: 320, y: 330, width: 960, height: 640 };
 const rf = (value: bigint) => `${formatGameAmount(value, 18)} RF`;
 
-type Menu = "generator" | "node" | "result" | "settings" | null;
+type Menu = "generator" | "node" | "result" | "settings" | "help" | null;
 
 /** How long a hit flash and a death burst last, in seconds. Both are short on purpose. */
 const FLASH_LIFE = 0.14;
@@ -278,11 +278,21 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   const lastSeen = useRef({ wave: 0, gun: 1 });
   still.current = reducedMotion;
 
+  /** Phone-sized or touch-driven, so the help screen can name the right controls. */
+  const [touch, setTouch] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 520px), (pointer: coarse)");
+    const follow = () => setTouch(query.matches);
+    follow();
+    query.addEventListener("change", follow);
+    return () => query.removeEventListener("change", follow);
+  }, []);
+
   useEffect(() => {
     const version = ++epoch.current;
     sound.current = createFriendSoundKit();
     runRef.current = createRun();
-    setMenu(null); setError(""); setMessage(""); setBuildMode(null); setRewards([]);
+    setMenu("help"); setError(""); setMessage(""); setBuildMode(null); setRewards([]);
     pending.current = []; setStaked(0); setForfeited([]); setSelected(null);
     clearEffects(fxRef.current); lastSeen.current = { wave: 0, gun: 1 };
     setBanner(null); setGunFlash(0);
@@ -638,7 +648,8 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   };
 
   const stageEnd = STAGE_WAVES.includes(hud.cleared);
-  const title = menu === "settings" ? "Settings"
+  const title = menu === "help" ? "How to Play"
+    : menu === "settings" ? "Settings"
     : menu === "generator" ? "Generator"
     : menu === "result" ? "Run banked"
     : run.phase === "lost" ? "The node fell"
@@ -685,6 +696,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               <span>Left {hud.enemies}</span>
             </>
           )}
+          <button type="button" className="ff-help-open" aria-label="How to play" onClick={() => navigate("help")}>?</button>
           <button type="button" onClick={() => navigate("settings")}>Settings</button>
           {near && !fighting && (
             <button
@@ -777,8 +789,25 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
       </div>
 
       {menu && (
-        <GameMenu title={title} onClose={busy ? undefined : () => navigate(null)}>
-          {menu === "settings" ? (
+        <GameMenu
+          title={title}
+          onClose={busy ? undefined : () => navigate(null)}
+          footer={menu === "help"
+            ? <button type="button" className="rf-frame-primary" onClick={() => navigate(null)}>Got it</button>
+            : undefined}
+        >
+          {menu === "help" ? (
+            <>
+              <ol className="ff-help">
+                <li><strong>Hold the node for nine waves.</strong> Your Friend <em>is</em> the
+                  weapon — short range, so move out.</li>
+                <li><strong>{touch ? "Tap to walk." : "Walk with WASD."}</strong>{" "}
+                  {touch ? "Tap a station to enter." : "Press E at a station."}</li>
+                <li><strong>Scrap</strong> buys turrets, gun levels and repairs.</li>
+                <li><strong>After wave 3: bank, or stake Cells and push on.</strong></li>
+              </ol>
+            </>
+          ) : menu === "settings" ? (
             <>
               <button
                 type="button"

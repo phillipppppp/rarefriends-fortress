@@ -42,6 +42,11 @@ Walk with **WASD**, arrow keys, or tap anywhere on the ground. Stand near a stat
 **Enter** button appears in the HUD; **E** does the same. During a run, tap **Build** and then tap
 open ground near the node to place a turret. Tap a placed turret to upgrade or merge it.
 
+**A How to Play card opens on load**, before anything else: four lines covering the goal, the
+controls, what scrap buys and the bank-or-push choice. It names taps on a phone and keys on a
+desktop, decided by a media query rather than a guess about the device. Close it with **Got it**,
+the **X**, or **Escape**, and reopen it any time from the **?** in the HUD.
+
 **Escape** closes whatever is open, one layer at a time — the turret panel first, then a menu —
 and does nothing when nothing is open. It deliberately never interferes with the SDK's purchase
 confirmation, which is the host's to dismiss. Every panel keeps its own close control, so touch
@@ -194,6 +199,7 @@ node tools/style-sim.mts        # clear rates by play style, 600 runs per row
 node tools/loop-e2e.mts         # buy, run, fight, bank, settle, in the real runtime
 node tools/effects-audit.mts    # effects present, performant, and off under reduced motion
 node tools/esc-audit.mts        # Escape closes the topmost layer and nothing else
+node tools/help-audit.mts       # How to Play: opens first, names the right controls, closes 3 ways
 node tools/controls-audit.mts   # live regions, mute, and reduced motion both ways
 node tools/tap-audit.mts        # every tap reaches the world at 390px and 960px
 node tools/merge-e2e.mts        # merging two turrets, at phone and desktop widths

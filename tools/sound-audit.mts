@@ -10,6 +10,12 @@ for (const [label, width, height] of [["desktop", 960, 800], ["phone", 390, 760]
   await testGame("./games/fortress", {
     width, height, timeout: 90_000,
     check: async ({ page, game }) => {
+      // How to Play opens on load, so every suite dismisses it before touching the world.
+      const helpGotIt = game.getByRole("button", { name: /^Got it$/ });
+      if (await helpGotIt.count() > 0) {
+        await helpGotIt.click();
+        await helpGotIt.waitFor({ state: "detached", timeout: 8000 });
+      }
       console.log(`\n=== ${label} ${width}x${height} ===`);
 
       // Count every buffer actually started, inside the sandboxed frame.

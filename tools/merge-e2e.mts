@@ -11,6 +11,12 @@ for (const [label, width, height] of [["phone", 390, 760], ["desktop", 960, 800]
     width, height, timeout: 150_000,
     screenshot: label === "phone" ? "./artifacts/ff-merge.png" : undefined,
     check: async ({ page, game }) => {
+      // How to Play opens on load, so every suite dismisses it before touching the world.
+      const helpGotIt = game.getByRole("button", { name: /^Got it$/ });
+      if (await helpGotIt.count() > 0) {
+        await helpGotIt.click();
+        await helpGotIt.waitFor({ state: "detached", timeout: 8000 });
+      }
       console.log(`\n=== ${label} ${width}x${height} ===`);
       const canvas = game.locator("canvas").first();
       const overlay = game.locator(".ff-overlay");
