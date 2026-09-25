@@ -235,10 +235,16 @@ feedback distinguishes a hit from a kill for free.
 a ref, so toggling it never restarts the loop, and switching it on clears whatever is already on
 screen. The banner and the pulse are not rendered at all, not merely un-animated.
 
-**Measured rather than assumed:** 120fps at 390px with a 17ms 95th-percentile frame and no frame
-over 32ms, taken by wrapping the game's own frame loop rather than a probe beside it. Bursts are
-capped at 24 so a heavy wave cannot grow the draw list without bound, and the flash refills the
-path already built for the enemy instead of constructing a second one.
+**Measured rather than assumed.** At 390px the game holds the display's full 60fps with a median
+and 95th-percentile frame of 17ms. The cost of the effects is measured by repeating the same
+reading with reduced motion on and comparing: **within ±2%, which is measurement noise.** That
+comparison is the real test — an absolute frame-rate floor would only tell you how busy the
+machine was. Bursts are capped at 24 so a heavy wave cannot grow the draw list without bound, and
+the flash refills the path already built for the enemy instead of constructing a second one.
+
+The first version of this measurement reported 120fps, which was wrong: several callbacks share one
+animation frame and each was counted, doubling the apparent rate. Only a change of timestamp counts
+as a frame now.
 
 ```bash
 node tools/effects-audit.mts    # all four effects, at 390px and 960px
