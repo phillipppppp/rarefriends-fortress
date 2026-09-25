@@ -305,6 +305,25 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
     return () => canvas.removeEventListener("pointerdown", onDown, true);
   }, [worldNode, buildMode, menu, paused]);
 
+  /**
+   * Escape closes the topmost thing that is open. The turret panel sits above the menus,
+   * so it goes first, and the event is consumed so a menu does not close with it.
+   * The SDK's purchase confirmation lives in the parent document and never sees this.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (selected !== null) {
+        event.preventDefault();
+        event.stopPropagation();
+        setSelected(null);
+      }
+      // Otherwise the SDK menu handles its own Escape.
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [selected]);
+
   async function act(work: () => Promise<void>, after?: () => void) {
     if (locked.current || paused) return;
     const version = epoch.current;
