@@ -3,11 +3,11 @@
   "consumable": "Power Cell",
   "price": "1000000000000000000",
   "outcomes": [
-    { "name": "Slag Fragment", "chanceBps": 1500, "reward": "0" },
-    { "name": "Cracked Core", "chanceBps": 3000, "reward": "250000000000000000" },
-    { "name": "Charged Cell", "chanceBps": 2800, "reward": "600000000000000000" },
-    { "name": "Focus Lens", "chanceBps": 1700, "reward": "1500000000000000000" },
-    { "name": "Prime Shard", "chanceBps": 800, "reward": "3000000000000000000" },
-    { "name": "Node Heart", "chanceBps": 200, "reward": "8100000000000000000" }
+    { "name": "Slag Fragment", "chanceBps": 1600, "reward": "0" },
+    { "name": "Cracked Core", "chanceBps": 2900, "reward": "300000000000000000" },
+    { "name": "Charged Cell", "chanceBps": 2600, "reward": "700000000000000000" },
+    { "name": "Focus Lens", "chanceBps": 1800, "reward": "1500000000000000000" },
+    { "name": "Prime Shard", "chanceBps": 900, "reward": "2900000000000000000" },
+    { "name": "Node Heart", "chanceBps": 200, "reward": "5000000000000000000" }
   ]
 }

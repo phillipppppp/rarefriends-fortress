@@ -47,6 +47,7 @@ await testGame("./games/fortress", {
     await walkTo(288, 215);
     await (await arriveAt(/^Enter The Node$/)).click();
     await game.getByRole("button", { name: /^Begin defence run$/ }).click();
+    await approve();
     console.log("PASS  run started");
 
     // Let a wave actually play out.
@@ -67,21 +68,22 @@ await testGame("./games/fortress", {
         return lit;
       });
       if (painted > 0) sawShots = true;
-      if (await game.getByRole("button", { name: /^Bank \d+ roll/ }).count() > 0) break;
+      if (await game.getByRole("button", { name: /^Recover \d+ of \d+ Cell/ }).count() > 0) break;
     }
     assert.ok(sawEnemies, "enemies should appear in the HUD during a wave");
     assert.ok(sawShots, "the overlay canvas should have painted pixels");
     console.log("PASS  enemies spawned and the overlay painted");
 
     // Wave 3 ends in the bank-or-push choice.
-    const bank = game.getByRole("button", { name: /^Bank \d+ roll/ });
+    const bank = game.getByRole("button", { name: /^Recover \d+ of \d+ Cell/ });
     await bank.waitFor({ timeout: 45_000 });
     const push = game.getByRole("button", { name: /^Push to wave/ });
     assert.equal(await push.count(), 1, "the push option should be offered alongside banking");
     console.log("PASS  bank-or-push offered");
 
     await bank.click();
-    await approve();
+    // Settling is not a mutation in preview, so no host confirmation appears.
+    await approve().catch(() => {});
     await game.getByText(/Banked after clearing wave/).waitFor({ timeout: 20_000 });
     const rewards = await game.locator(".ff-reward").count();
     assert.ok(rewards >= 1, "banking should settle at least one roll");

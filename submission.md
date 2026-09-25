@@ -32,7 +32,6 @@ Stations deliberately have no floating label over the world: the SDK prompt is s
 3. **Waves arrive from four lanes.** Your Friend auto-fires; you reposition to intercept and keep the node covered. Turrets are support, paid for with scrap earned inside the run rather than with RF.
 4. **After wave 3, bank or push.**
 
-Depth decides **how many rolls** you earn, not the odds: wave 3 earns one roll, wave 6 two, wave 9 three. Each roll spends one Power Cell, and losing the node still pays for waves already cleared.
 
 **Why rolls rather than better odds:** `game.json` defines one fixed outcome table and the client enforces it, so weighting outcomes by performance would mean paying out RF the client never issued. Buying more rolls raises expected reward honestly, keeps the published table true, and leaves the bank-or-push tension intact.
 
@@ -47,9 +46,57 @@ Depth decides **how many rolls** you earn, not the odds: wave 3 earns one roll, 
 | Charged Cell | 28% | 0.60 RF |
 | Focus Lens | 17% | 1.50 RF |
 | Prime Shard | 8% | 3.00 RF |
-| Node Heart | 2% | 8.10 RF |
+| Node Heart | 2% | 5.00 RF |
 
 Expected reward **0.90 RF per roll — a 10% house edge**, matching both shipped SDK examples and verified by the SDK's own `expectedReward`.
+
+## Staking, and why the top prize is 5 RF
+
+Every Cell you commit becomes a **pending play**. Starting a run stakes one; each gun upgrade
+stakes more. **Depth decides how many you are allowed to settle**, so the stake is a bet on how
+far the run will get:
+
+| Bank at | Cells recoverable |
+|---|---|
+| Wave 3 | 3 |
+| Wave 6 | 7 |
+| Wave 9 | 11 |
+
+Match your stake to the depth you can reach and you lose only the 10% house edge. Over-stake and
+fall short, and the difference is forfeited — that is the sink.
+
+| Staked | Bank at | RF out | RF back | Net | Break-even |
+|---|---|---|---|---|---|
+| 1 | any | 1 | 0.90 | −0.10 | 29% |
+| 4 | wave 6 | 4 | 3.61 | −0.39 | 37% |
+| 7 | wave 6 | 7 | 6.29 | −0.71 | 35% |
+| 11 | wave 9 | 11 | 9.89 | −1.11 | 34% |
+| 11 | wave 3 | 11 | 2.70 | −8.30 | 0% |
+
+**No configuration can be net-positive in expectation** — every Cell returns 0.90 against a 1 RF
+cost, and the SDK will not let a game alter that. What staking buys is *more shots at the table*,
+which is why break-even rises from 10% on a plain run to 34–37% on a well-judged one.
+
+The top prize is deliberately **5 RF rather than 10**. A pending play holds the maximum prize of
+backing until it settles, so an 8.1 RF prize capped the stake at ten pending plays; 5 RF allows
+eleven while keeping expected reward at exactly 0.900.
+
+### Upgrade costs, in Cells
+
+| Level | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|
+| Gun (cumulative) | 1 | 2 | 3 | 5 | 7 | 9 | 12 |
+
+Damage and fire rate both improve, so an upgraded gun feels different rather than merely bigger.
+**Upgrades reset with every run**, which is the point: the spend recurs rather than happening once.
+
+### What happens to pending plays
+
+A run always settles every play it staked. The first *recoverable* become your reward; the rest
+are settled with their outcome shown but never redeemed, so the backing they held is released
+rather than stranded. **If you quit mid-run**, those plays stay pending and keep holding backing —
+so the next run you start settles them first, discarding them, before staking anew. Nothing is
+left hanging, and purchases never silently stop working.
 
 ## The Friend is the fighter
 

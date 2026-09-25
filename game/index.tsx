@@ -11,6 +11,7 @@ import { createFriendSoundKit, type FriendSoundKit } from "@rarefriends/friendsd
 import {
   createRun, startWave, step, rollsFor, placeTurret, dailyModifier,
   NODE, FRIEND_RANGE, TURRETS, MAX_TURRETS, STAGE_WAVES, FINAL_WAVE, NODE_MAX_HP,
+  MAX_LEVEL, ROLLS_AT, gunStepCost, gunPower, gunCooldown, upgradeGun,
   type Run, type TurretKind,
 } from "./combat.js";
 import "@rarefriends/friendsdk/frame.css";
@@ -147,7 +148,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   /** Mirrors run state into React for the HUD only; the loop owns the authoritative copy. */
   const [hud, setHud] = useState({
     phase: "briefing" as Run["phase"], wave: 0, nodeHp: NODE_MAX_HP,
-    scrap: 0, enemies: 0, cleared: 0, turrets: 0,
+    scrap: 0, enemies: 0, cleared: 0, turrets: 0, gun: 1,
   });
 
   const overlay = useRef<HTMLCanvasElement | null>(null);
@@ -159,12 +160,21 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   const modifier = useRef(dailyModifier());
   /** Cue throttles; the SDK mixes four voices, so unthrottled kills would just be noise. */
   const cueAt = useRef({ kill: 0, nodeHit: 0 });
+  /**
+   * Ids of plays already created but not settled. Each is one staked Cell, and each holds
+   * the maximum prize of backing until it is settled, which is why they are settled the
+   * moment a run ends rather than left hanging.
+   */
+  const pending = useRef<bigint[]>([]);
+  const [staked, setStaked] = useState(0);
+  const [forfeited, setForfeited] = useState<readonly GamePlay[]>([]);
 
   useEffect(() => {
     const version = ++epoch.current;
     sound.current = createFriendSoundKit();
     runRef.current = createRun();
     setMenu(null); setError(""); setMessage(""); setBuildMode(null); setRewards([]);
+    pending.current = []; setStaked(0); setForfeited([]);
     void client.read().then(value => { if (version === epoch.current) setSnapshot(value); }).catch(cause => {
       if (version === epoch.current) setError(cause instanceof Error ? cause.message : "Could not load the preview.");
     });
@@ -223,7 +233,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
             setHud({
               phase: run.phase, wave: run.wave, nodeHp: run.nodeHp,
               scrap: run.scrap, enemies: run.enemies.length + run.pending, cleared: run.cleared,
-              turrets: run.turrets.length,
+              turrets: run.turrets.length, gun: run.gun,
             });
             const reachable = run.phase === "wave" || run.phase === "respite"
               ? null
@@ -294,27 +304,54 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
     && snapshot.freeStake + definition.price >= maxPrize;
   const run = runRef.current;
   const rolls = rollsFor(hud.cleared);
-  const payableRolls = Math.min(rolls, Number(snapshot.consumables));
+  /** How much of the stake the depth reached actually gives back. */
+  const recoverable = Math.min(staked, rolls);
+  const atRisk = Math.max(0, staked - rolls);
   const fighting = hud.phase === "wave" || hud.phase === "respite";
+
+  /** Turns Cells into pending plays. Each one is recoverable only by reaching depth. */
+  const stakeCells = async (count: number) => {
+    const plays = await client.play(BigInt(count));
+    pending.current = [...pending.current, ...plays.map(play => play.id)];
+    setStaked(pending.current.length);
+  };
+
+  /**
+   * Settles every pending play so the backing they hold is released. The first
+   * `recoverable` become the reward; the rest are shown as forfeited and never redeemed.
+   */
+  const closeOutRun = async (recoverable: number) => {
+    const ids = pending.current;
+    pending.current = [];
+    const settled: GamePlay[] = [];
+    for (const id of ids) settled.push(await client.settle(id));
+    setStaked(0);
+    setRewards(settled.slice(0, recoverable));
+    setForfeited(settled.slice(recoverable));
+    return settled.slice(0, recoverable);
+  };
 
   const beginRun = () => {
     if (snapshot.consumables < 1n) { setError("You need at least one Power Cell to defend the node."); return; }
     void sound.current?.unlock();
-    sound.current?.play("action-start");
-    runRef.current = createRun();
-    startWave(runRef.current, 1);
-    setRewards([]);
-    setMenu(null);
+    void act(async () => {
+      // A run abandoned earlier leaves plays pending, which hold backing; clear them first.
+      if (pending.current.length > 0) await closeOutRun(0);
+      await stakeCells(1);
+      sound.current?.play("action-start");
+      runRef.current = createRun();
+      startWave(runRef.current, 1);
+      setRewards([]); setForfeited([]);
+      setMenu(null);
+    });
   };
 
   /** Banking spends one Power Cell per roll earned, then settles each play. */
   const bank = () =>
     act(async () => {
       const version = epoch.current;
-      if (payableRolls < 1) throw new Error("No rolls earned. Clear wave 3 to bank a reward.");
-      const plays = await client.play(BigInt(payableRolls));
-      const settled: GamePlay[] = [];
-      for (const play of plays) settled.push(await client.settle(play.id));
+      if (recoverable < 1) throw new Error("Clear wave 3 to recover any of your stake.");
+      const settled = await closeOutRun(recoverable);
       if (version === epoch.current) {
         runRef.current.phase = "banked";
         const best = settled.reduce((top, play) => {
@@ -327,6 +364,22 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
         setMenu("result");
       }
     });
+
+  const buyGunUpgrade = () => {
+    const run = runRef.current;
+    if (run.gun >= MAX_LEVEL) return;
+    const cost = gunStepCost(run.gun);
+    if (snapshot.consumables < BigInt(cost)) {
+      setMessage(`Needs ${cost} Power Cell${cost === 1 ? "" : "s"}. Buy more at the Generator between runs.`);
+      return;
+    }
+    void act(async () => {
+      await stakeCells(cost);
+      upgradeGun(runRef.current);
+      sound.current?.play("purchase");
+      setMessage(`Gun level ${runRef.current.gun}. ${cost} Cell${cost === 1 ? "" : "s"} staked — simulated, recoverable as rolls if you reach depth.`);
+    });
+  };
 
   const pushOn = () => {
     sound.current?.play("action-start");
@@ -384,6 +437,8 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               <span className={hud.nodeHp <= 25 ? "ff-danger" : ""}>Node {hud.nodeHp}</span>
               <span>Scrap {hud.scrap}</span>
               <span>Turrets {hud.turrets}/{MAX_TURRETS}</span>
+              <span className="ff-gun">Gun L{hud.gun}</span>
+              <span className="ff-staked">Staked {staked}</span>
               <span>Left {hud.enemies}</span>
             </>
           )}
@@ -395,6 +450,15 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               onClick={() => navigate(near.id)}
             >
               Enter {near.label}
+            </button>
+          )}
+          {fighting && hud.gun < MAX_LEVEL && (
+            <button
+              type="button"
+              disabled={busy || paused || snapshot.consumables < BigInt(gunStepCost(hud.gun))}
+              onClick={buyGunUpgrade}
+            >
+              Gun L{hud.gun + 1} · {gunStepCost(hud.gun)} Cell{gunStepCost(hud.gun) === 1 ? "" : "s"}
             </button>
           )}
           {fighting && (Object.keys(TURRETS) as TurretKind[]).map(kind => (
@@ -497,6 +561,22 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
                   </div>
                 );
               })}
+              {forfeited.length > 0 && (
+                <>
+                  <p className="ff-risk">
+                    {forfeited.length} staked Cell{forfeited.length === 1 ? "" : "s"} forfeited — beyond
+                    what wave {hud.cleared} recovers. Settled with no payout so the backing is released.
+                  </p>
+                  {forfeited.map(play => {
+                    const outcome = play.outcomeId ? definition.outcomes[play.outcomeId - 1] : null;
+                    return (
+                      <div className="ff-reward ff-forfeited" key={play.id.toString()}>
+                        <span><strong>{outcome?.name ?? "Unknown"}</strong><small>forfeited</small></span>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
               <button type="button" className="rf-frame-primary" disabled={busy || paused} onClick={() => navigate(null)}>
                 Back to the mesa
               </button>
@@ -506,8 +586,8 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               <p>The glitches drained the node on wave {hud.wave}. Waves already cleared still pay.</p>
               <p><strong>{rolls} roll{rolls === 1 ? "" : "s"}</strong> earned from {hud.cleared} cleared wave{hud.cleared === 1 ? "" : "s"}.</p>
               {rolls > 0
-                ? <button type="button" className="rf-frame-primary" disabled={busy || paused || payableRolls < 1} onClick={() => void bank()}>
-                    Bank {payableRolls} roll{payableRolls === 1 ? "" : "s"}
+                ? <button type="button" className="rf-frame-primary" disabled={busy || paused || recoverable < 1} onClick={() => void bank()}>
+                    Recover {recoverable} of {staked} Cell{staked === 1 ? "" : "s"}
                   </button>
                 : <p>Clear at least wave 3 to earn a roll.</p>}
               <button type="button" disabled={busy || paused} onClick={() => { runRef.current = createRun(); navigate(null); }}>
@@ -521,11 +601,14 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
                 Bank <strong>{rolls} roll{rolls === 1 ? "" : "s"}</strong> now, or push on. Deeper stages earn more rolls,
                 and losing the node still pays for waves already cleared.
               </p>
-              <button type="button" className="rf-frame-primary" disabled={busy || paused || payableRolls < 1} onClick={() => void bank()}>
-                Bank {payableRolls} roll{payableRolls === 1 ? "" : "s"}
+              <button type="button" className="rf-frame-primary" disabled={busy || paused || recoverable < 1} onClick={() => void bank()}>
+                Recover {recoverable} of {staked} Cell{staked === 1 ? "" : "s"}
               </button>
-              {payableRolls < rolls && (
-                <p>You hold {snapshot.consumables.toString()} cell{snapshot.consumables === 1n ? "" : "s"}, so only {payableRolls} can be rolled. Buy more to bank the full {rolls}.</p>
+              {atRisk > 0 && (
+                <p className="ff-risk">
+                  {atRisk} staked Cell{atRisk === 1 ? "" : "s"} would be forfeited at this depth.
+                  Push to wave {hud.cleared < 6 ? 6 : 9} to recover {hud.cleared < 6 ? ROLLS_AT[6] : ROLLS_AT[9]}.
+                </p>
               )}
               {hud.cleared < FINAL_WAVE && (
                 <button type="button" disabled={busy || paused} onClick={pushOn}>Push to wave {hud.cleared + 1}</button>
@@ -535,7 +618,21 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
             <>
               <p>Your Friend defends the node, firing automatically at anything in range. Position is the whole skill.</p>
               <p>Today: <strong>{modifier.current.name}</strong> — {modifier.current.blurb}</p>
-              <p>Clear wave 3 to earn a roll, wave 6 for two, wave 9 for three. Each roll spends one Power Cell.</p>
+              <p>
+                Starting a run stakes <strong>1 Power Cell</strong>. Upgrading the gun stakes more.
+                Staked Cells come back as reward rolls, but only as far as the depth you reach.
+              </p>
+              <table>
+                <thead><tr><th>Bank at</th><th>Cells recoverable</th></tr></thead>
+                <tbody>
+                  <tr><td>Wave 3</td><td>{ROLLS_AT[3]}</td></tr>
+                  <tr><td>Wave 6</td><td>{ROLLS_AT[6]}</td></tr>
+                  <tr><td>Wave 9</td><td>{ROLLS_AT[9]}</td></tr>
+                </tbody>
+              </table>
+              <p className="ff-note">
+                Anything staked beyond that is forfeited. All staking and rewards are simulated.
+              </p>
               <p className="ff-note">
                 Scrap earned inside a run buys turrets: <strong>Pulse</strong> ({TURRETS.pulse.cost}) is single
                 target with a steady rate, <strong>Arc</strong> ({TURRETS.arc.cost}) has shorter reach but hits a cluster.

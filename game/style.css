@@ -87,3 +87,10 @@
 .ff-still *,
 .ff-still *::before,
 .ff-still *::after{animation:none !important;transition:none !important}
+
+/* Staking is a bet, so the numbers that describe it are called out. */
+.ff-gun{color:#ffe066 !important;border-color:rgba(255,224,102,.5) !important}
+.ff-staked{color:#f2a6ff !important;border-color:rgba(242,166,255,.5) !important}
+.ff-risk{color:#ffb36b;font-weight:700}
+.ff-forfeited{opacity:.55}
+.ff-forfeited small{color:#ffb36b}

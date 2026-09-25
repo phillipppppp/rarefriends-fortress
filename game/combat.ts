@@ -38,10 +38,34 @@ export type Run = {
   shots: Shot[];
   turrets: Turret[];
   friendCooldown: number;
+  /** Gun level, 1 to MAX_LEVEL. Resets with every run. */
+  gun: number;
   nextId: number;
   /** Deepest wave fully cleared. The reward is paid against this. */
   cleared: number;
 };
+
+export const MAX_LEVEL = 8;
+
+/**
+ * Cells needed to take the gun from its current level to the next, indexed from level 1.
+ * Cumulative to level 8 is 12, against a backing ceiling of 11 pending plays, so a full
+ * build is deliberately just out of reach in one run.
+ */
+export const GUN_STEP = [1, 1, 1, 2, 2, 2, 3];
+export const gunStepCost = (level: number) => GUN_STEP[level - 1] ?? 0;
+export const gunTotalCost = (level: number) =>
+  GUN_STEP.slice(0, Math.max(0, level - 1)).reduce((total, cost) => total + cost, 0);
+
+/** Damage and rate both improve, so an upgraded gun feels different rather than just bigger. */
+export const gunPower = (level: number) => FRIEND_POWER + (level - 1) * 8;
+export const gunCooldown = (level: number) => FRIEND_COOLDOWN * Math.pow(0.94, level - 1);
+
+/**
+ * Cells recoverable as rolls at each depth. Everything staked beyond this is forfeited,
+ * so the stake is a bet on how far the run will get.
+ */
+export const ROLLS_AT: Readonly<Record<number, number>> = { 3: 3, 6: 7, 9: 11 };
 
 export const NODE: Vec = { x: 288, y: 192 };
 export const FRIEND_RANGE = 95;
@@ -74,7 +98,7 @@ export function createRun(): Run {
   return {
     phase: "briefing", wave: 0, pending: 0, spawnTimer: 0, respiteTimer: 0,
     nodeHp: NODE_MAX_HP, nodeMaxHp: NODE_MAX_HP, scrap: 0,
-    enemies: [], shots: [], turrets: [], friendCooldown: 0, nextId: 1, cleared: 0,
+    enemies: [], shots: [], turrets: [], friendCooldown: 0, gun: 1, nextId: 1, cleared: 0,
   };
 }
 
@@ -190,9 +214,10 @@ export function step(run: Run, dt: number, friend: Vec, modifier: Modifier = dai
   if (run.friendCooldown <= 0) {
     const target = nearestTo(friend.x, friend.y, FRIEND_RANGE);
     if (target) {
-      run.shots.push({ id: run.nextId++, x: friend.x, y: friend.y, tx: target.x, ty: target.y, life: 0.12, power: FRIEND_POWER });
-      target.hp -= FRIEND_POWER;
-      run.friendCooldown = FRIEND_COOLDOWN;
+      const power = gunPower(run.gun);
+      run.shots.push({ id: run.nextId++, x: friend.x, y: friend.y, tx: target.x, ty: target.y, life: 0.12, power });
+      target.hp -= power;
+      run.friendCooldown = gunCooldown(run.gun);
     }
   }
   for (const turret of run.turrets) {
@@ -248,12 +273,19 @@ export function step(run: Run, dt: number, friend: Vec, modifier: Modifier = dai
   return events;
 }
 
-/** Rolls earned by a banked run. Depth buys more rolls; it never changes the odds. */
+/** Cells recoverable as rolls at the depth reached. Depth never changes the odds. */
 export function rollsFor(cleared: number) {
-  if (cleared >= 9) return 3;
-  if (cleared >= 6) return 2;
-  if (cleared >= 3) return 1;
+  if (cleared >= 9) return ROLLS_AT[9];
+  if (cleared >= 6) return ROLLS_AT[6];
+  if (cleared >= 3) return ROLLS_AT[3];
   return 0;
+}
+
+/** Upgrades the gun if the level allows it. The caller pays the Cells. */
+export function upgradeGun(run: Run) {
+  if (run.gun >= MAX_LEVEL) return false;
+  run.gun += 1;
+  return true;
 }
 
 export function canPlaceTurret(run: Run, x: number, y: number, kind: TurretKind = "pulse") {

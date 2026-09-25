@@ -64,6 +64,7 @@ await testGame("./games/fortress", {
     await tap(288, 215);
     await game.getByRole("button", { name: /^Enter The Node$/ }).click();
     await game.getByRole("button", { name: /^Begin defence run$/ }).click();
+    await approve();
 
     const pulse = game.getByRole("button", { name: /^Pulse · \d+$/ });
     const arc = game.getByRole("button", { name: /^Arc · \d+$/ });

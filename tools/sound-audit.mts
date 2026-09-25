@@ -55,6 +55,7 @@ for (const [label, width, height] of [["desktop", 960, 800], ["phone", 390, 760]
       await tap(288, 215);
       await game.getByRole("button", { name: /^Enter The Node$/ }).click();
       await game.getByRole("button", { name: /^Begin defence run$/ }).click();
+    await approve();
       await page.waitForTimeout(600);
       const afterStart = await cues();
       assert.ok(afterStart > afterBuy, "starting a run should make a sound");
@@ -66,7 +67,7 @@ for (const [label, width, height] of [["desktop", 960, 800], ["phone", 390, 760]
         await page.waitForTimeout(500);
         combat = await cues();
         if (combat > afterStart + 3) break;
-        if (await game.getByRole("button", { name: /^Bank \d+ roll/ }).count() > 0) break;
+        if (await game.getByRole("button", { name: /^Recover \d+ of \d+ Cell/ }).count() > 0) break;
       }
       assert.ok(combat > afterStart, `combat should make sounds (got ${combat - afterStart} during the wave)`);
       console.log(`PASS  combat sounded (${combat - afterStart} cue(s) during the wave)`);
