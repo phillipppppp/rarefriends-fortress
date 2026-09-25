@@ -41,8 +41,71 @@ const rf = (value: bigint) => `${formatGameAmount(value, 18)} RF`;
 
 type Menu = "generator" | "node" | "result" | "settings" | null;
 
+/** How long a hit flash and a death burst last, in seconds. Both are short on purpose. */
+const FLASH_LIFE = 0.14;
+const BURST_LIFE = 0.32;
+/** Bursts are capped so a heavy wave cannot grow the draw list without bound on a phone. */
+const MAX_BURSTS = 24;
+
+/**
+ * Purely decorative state, tracked out here rather than in `combat.ts` so the simulation stays
+ * the single source of balance truth. Hits are detected by remembering each enemy's health
+ * between frames, which means no gameplay code had to change to light them up.
+ */
+type Fx = {
+  seen: Map<number, { hp: number; x: number; y: number; big: boolean }>;
+  flash: Map<number, number>;
+  bursts: { x: number; y: number; life: number; big: boolean }[];
+};
+
+/**
+ * Ages the running effects and reads new ones out of the simulation by comparing health with the
+ * previous frame. Nothing here feeds back into `run`, so balance cannot drift because of it.
+ */
+function trackEffects(fx: Fx, run: Run, dt: number) {
+  for (const [id, left] of fx.flash) {
+    const next = left - dt;
+    if (next <= 0) fx.flash.delete(id);
+    else fx.flash.set(id, next);
+  }
+  for (let index = fx.bursts.length - 1; index >= 0; index -= 1) {
+    fx.bursts[index].life -= dt;
+    if (fx.bursts[index].life <= 0) fx.bursts.splice(index, 1);
+  }
+
+  const live = new Set<number>();
+  for (const enemy of run.enemies) {
+    live.add(enemy.id);
+    const last = fx.seen.get(enemy.id);
+    if (!last) {
+      fx.seen.set(enemy.id, { hp: enemy.hp, x: enemy.x, y: enemy.y, big: enemy.kind === "hulk" });
+      continue;
+    }
+    if (enemy.hp < last.hp) fx.flash.set(enemy.id, FLASH_LIFE);
+    last.hp = enemy.hp;
+    last.x = enemy.x;
+    last.y = enemy.y;
+  }
+  // Anything that left the list since the last frame either died or reached the node.
+  for (const [id, last] of fx.seen) {
+    if (live.has(id)) continue;
+    if (fx.bursts.length < MAX_BURSTS) {
+      fx.bursts.push({ x: last.x, y: last.y, life: BURST_LIFE, big: last.big });
+    }
+    fx.seen.delete(id);
+    fx.flash.delete(id);
+  }
+}
+
+/** Drops every running effect, so switching reduced motion on empties the screen at once. */
+function clearEffects(fx: Fx) {
+  fx.seen.clear();
+  fx.flash.clear();
+  fx.bursts.length = 0;
+}
+
 /** Draws the run onto a transparent canvas stacked over the SDK world canvas. */
-function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number; y: number }, buildMode: TurretKind | null, selected: number | null, partnerId: number | null) {
+function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number; y: number }, buildMode: TurretKind | null, selected: number | null, partnerId: number | null, effects: Fx) {
   context.clearRect(0, 0, VIEW.width, VIEW.height);
   context.save();
   context.translate(-VIEW.x, -VIEW.y);
@@ -118,6 +181,14 @@ function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number;
     context.fillStyle = enemy.kind === "hulk" ? "#ff7ad9" : enemy.kind === "shard" ? "#ffb36b" : "#ff5c8a";
     context.fill();
     context.lineWidth = 1.5; context.strokeStyle = "#1a0714"; context.stroke();
+    // Refilling the retained path is cheaper than building a second one.
+    const hit = effects.flash.get(enemy.id);
+    if (hit) {
+      context.globalAlpha = Math.min(1, hit / FLASH_LIFE);
+      context.fillStyle = "#ffffff";
+      context.fill();
+      context.globalAlpha = 1;
+    }
     if (enemy.hp < enemy.maxHp) {
       context.fillStyle = "rgba(10,4,10,.8)";
       context.fillRect(ex - size, ey - size - 7, size * 2, 3);
@@ -134,6 +205,17 @@ function paint(context: CanvasRenderingContext2D, run: Run, friend: { x: number;
     context.lineTo(tx, ty);
     context.strokeStyle = shot.power >= 30 ? "rgba(0,229,255,.95)" : "rgba(242,166,255,.9)";
     context.lineWidth = shot.power >= 30 ? 3 : 2;
+    context.stroke();
+  }
+
+  for (const burst of effects.bursts) {
+    const [bx, by] = project(burst.x, burst.y);
+    const age = 1 - burst.life / BURST_LIFE;
+    const radius = (burst.big ? 17 : 11) * (0.35 + age * 1.7);
+    context.beginPath();
+    context.ellipse(bx, by, radius, radius * 0.45, 0, 0, Math.PI * 2);
+    context.strokeStyle = `rgba(255,224,102,${(1 - age) * 0.8})`;
+    context.lineWidth = 2;
     context.stroke();
   }
 
@@ -187,6 +269,14 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
   const [staked, setStaked] = useState(0);
   const [forfeited, setForfeited] = useState<readonly GamePlay[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
+  /** Decorative only. `banner` announces a wave, `gunFlash` is a key that restarts the flash. */
+  const [banner, setBanner] = useState<{ text: string; id: number } | null>(null);
+  const [gunFlash, setGunFlash] = useState(0);
+  const fxRef = useRef<Fx>({ seen: new Map(), flash: new Map(), bursts: [] });
+  /** Read inside the animation frame, so toggling reduced motion never restarts the loop. */
+  const still = useRef(false);
+  const lastSeen = useRef({ wave: 0, gun: 1 });
+  still.current = reducedMotion;
 
   useEffect(() => {
     const version = ++epoch.current;
@@ -194,6 +284,8 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
     runRef.current = createRun();
     setMenu(null); setError(""); setMessage(""); setBuildMode(null); setRewards([]);
     pending.current = []; setStaked(0); setForfeited([]); setSelected(null);
+    clearEffects(fxRef.current); lastSeen.current = { wave: 0, gun: 1 };
+    setBanner(null); setGunFlash(0);
     void client.read().then(value => { if (version === epoch.current) setSnapshot(value); }).catch(cause => {
       if (version === epoch.current) setError(cause instanceof Error ? cause.message : "Could not load the preview.");
     });
@@ -206,6 +298,26 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
       preference.removeEventListener("change", follow);
     };
   }, [client, friendId]);
+
+  // Turning reduced motion on empties the screen rather than freezing effects mid-flight.
+  useEffect(() => {
+    if (!reducedMotion) return;
+    clearEffects(fxRef.current);
+    setBanner(null);
+    setGunFlash(0);
+  }, [reducedMotion]);
+
+  useEffect(() => {
+    if (!banner) return;
+    const timer = window.setTimeout(() => setBanner(null), 1150);
+    return () => window.clearTimeout(timer);
+  }, [banner]);
+
+  useEffect(() => {
+    if (gunFlash === 0) return;
+    const timer = window.setTimeout(() => setGunFlash(0), 620);
+    return () => window.clearTimeout(timer);
+  }, [gunFlash]);
 
   // The simulation and the overlay share one animation frame loop.
   useEffect(() => {
@@ -232,6 +344,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
           const run = runRef.current;
           if (!paused && menu === null) {
             const events = step(run, dt, { x: fx, y: fy }, modifier.current);
+            if (!still.current) trackEffects(fxRef.current, run, dt);
             if (events.kills > 0 && now - cueAt.current.kill > 110) {
               cueAt.current.kill = now;
               sound.current?.play("impact");
@@ -244,7 +357,7 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
             if (events.lost) sound.current?.play("reveal-legendary");
           }
           const context = surface.getContext("2d");
-          if (context) paint(context, run, { x: fx, y: fy }, buildMode, selectedRef.current.id, selectedRef.current.partner);
+          if (context) paint(context, run, { x: fx, y: fy }, buildMode, selectedRef.current.id, selectedRef.current.partner, fxRef.current);
 
           hudTimer -= dt;
           if (hudTimer <= 0) {
@@ -254,6 +367,18 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
               scrap: run.scrap, enemies: run.enemies.length + run.pending, cleared: run.cleared,
               turrets: run.turrets.length, gun: run.gun, repairs: run.repairs, nodeMax: run.nodeMaxHp,
             });
+            // Wave banner and gun flash. Under reduced motion the trackers still advance, so
+            // turning it back off does not fire a burst of stale announcements.
+            if (run.phase === "wave" && run.wave !== lastSeen.current.wave) {
+              lastSeen.current.wave = run.wave;
+              if (!still.current) setBanner({ text: `Wave ${run.wave}`, id: run.wave });
+            }
+            if (run.gun !== lastSeen.current.gun) {
+              const climbed = run.gun > lastSeen.current.gun;
+              lastSeen.current.gun = run.gun;
+              if (climbed && !still.current) setGunFlash(count => count + 1);
+            }
+
             const reachable = run.phase === "wave" || run.phase === "respite"
               ? null
               : STATIONS.find(station => Math.hypot(station.x - fx, station.y - fy) <= station.reach) ?? null;
@@ -539,6 +664,13 @@ export default function FriendFortress({ friendId, client, paused }: GameCompone
           aria-hidden="true"
           onPointerDown={onOverlayPointer}
         />
+
+        {/* Decorative, and never rendered at all under reduced motion. The key restarts the
+            animation when the same effect fires twice in a row. */}
+        {banner && (
+          <div className="ff-banner" key={banner.id} aria-hidden="true">{banner.text}</div>
+        )}
+        {gunFlash > 0 && <div className="ff-gunflash" key={gunFlash} aria-hidden="true" />}
 
         <div className="ff-hud">
           <span>{rf(snapshot.rfBalance)} · {snapshot.consumables.toString()} cells</span>
