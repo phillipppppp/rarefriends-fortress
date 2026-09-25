@@ -18,8 +18,8 @@ export type Turret = { id: number; x: number; y: number; tier: number; cooldown:
  * cluster at once, which is what makes placement a decision rather than a formality.
  */
 export const TURRETS: Record<TurretKind, { label: string; cost: number; range: number; power: number; cooldown: number; splash: number; blurb: string }> = {
-  pulse: { label: "Pulse", cost: 30, range: 78, power: 18, cooldown: 0.9, splash: 0, blurb: "Single target, steady rate." },
-  arc: { label: "Arc", cost: 50, range: 62, power: 13, cooldown: 1.25, splash: 34, blurb: "Shorter reach, hits a cluster." },
+  pulse: { label: "Pulse", cost: 30, range: 78, power: 12, cooldown: 0.9, splash: 0, blurb: "Single target, steady rate." },
+  arc: { label: "Arc", cost: 50, range: 62, power: 9, cooldown: 1.25, splash: 34, blurb: "Shorter reach, hits a cluster." },
 };
 
 export type RunPhase = "briefing" | "wave" | "respite" | "lost" | "banked";
@@ -60,7 +60,7 @@ export const gunTotalCost = (level: number) =>
   GUN_STEP.slice(0, Math.max(0, level - 1)).reduce((total, cost) => total + cost, 0);
 
 /** Damage and rate both improve, so an upgraded gun feels different rather than just bigger. */
-export const gunPower = (level: number) => FRIEND_POWER + (level - 1) * 8;
+export const gunPower = (level: number) => FRIEND_POWER + (level - 1) * 14;
 export const gunCooldown = (level: number) => FRIEND_COOLDOWN * Math.pow(0.94, level - 1);
 
 /**
@@ -91,9 +91,15 @@ export const turretStepCost = (level: number) => TURRET_STEP[level - 1] ?? 0;
 export const ROLLS_AT: Readonly<Record<number, number>> = { 3: 3, 6: 7, 9: 11 };
 
 export const NODE: Vec = { x: 288, y: 192 };
-export const FRIEND_RANGE = 95;
+/**
+ * The Friend out-damages every turret, but only reaches 68 units — short enough that standing on
+ * the node leaves most of a wave unengaged. Simulation puts a node-camping run at ~2% for wave 9
+ * against ~82% for one that moves out, which is the whole skill of the game. Widening this back
+ * toward 95 flattens that spread and the turrets quietly take over as the main weapon.
+ */
+export const FRIEND_RANGE = 68;
 export const FRIEND_COOLDOWN = 0.42;
-export const FRIEND_POWER = 34;
+export const FRIEND_POWER = 52;
 export const TURRET_RANGE = 78;
 export const TURRET_COOLDOWN = 0.9;
 export const TURRET_COST = 14;
@@ -104,7 +110,7 @@ export const MAX_TURRETS = 5;
  * Difficulty knobs, kept together and mutable so the balance simulation can sweep them.
  * Gameplay never writes to this; only the tuning harness does.
  */
-export const TUNING = { countPerWave: 2.15, hpGrowth: 0.26, burstFloor: 0.17 };
+export const TUNING = { countPerWave: 2.15, hpGrowth: 0.315, burstFloor: 0.17 };
 export const NODE_MAX_HP = 100;
 export const RESPITE_SECONDS = 6;
 /** Waves that end a stage, where the player may bank or push on. */
@@ -249,7 +255,7 @@ export function step(run: Run, dt: number, friend: Vec, modifier: Modifier = dai
     const spec = TURRETS[turret.kind];
     const target = nearestTo(turret.x, turret.y, spec.range + turret.tier * 12);
     if (!target) continue;
-    const power = spec.power + turret.tier * 15;
+    const power = spec.power + turret.tier * 9;
     run.shots.push({ id: run.nextId++, x: turret.x, y: turret.y, tx: target.x, ty: target.y, life: 0.12, power });
     target.hp -= power;
     // Arc carries into anything clustered around the target.

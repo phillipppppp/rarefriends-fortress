@@ -1,9 +1,10 @@
 // How far does each build get, across play styles? `reach` is how far the notional Friend
 // pushes out to intercept: 0.4 hugs the node, 1.0 chases to the spawn lanes.
+// This reproduces the tables in the README and the submission write-up.
 import {
   createRun, startWave, step, placeTurret, turretCost, upgradeGunWithScrap, gunScrapCost,
   GUN_SCRAP_MAX, repairNode, repairCost, upgradeGun,
-  NODE, MAX_TURRETS, MAX_LEVEL, TUNING, dailyModifier, type Run,
+  NODE, MAX_TURRETS, MAX_LEVEL, dailyModifier, type Run,
 } from "../games/fortress/combat.ts";
 
 const DT = 1 / 60;
@@ -23,6 +24,7 @@ function threat(run: Run, reach: number) {
   return { x: NODE.x + (best.x - NODE.x) * reach, y: NODE.y + (best.y - NODE.y) * reach };
 }
 
+/** One scrap decision per tick, in the order a sensible player would take them. */
 function spend(run: Run) {
   if (run.nodeHp <= run.nodeMaxHp * 0.45 && run.scrap >= repairCost(run.repairs)) {
     if (repairNode(run)) return;
@@ -53,7 +55,8 @@ function play(staked: boolean, reach: number) {
   return { cleared: run.cleared, won: run.cleared >= 9 && run.phase !== "lost" };
 }
 
-const TRIALS = 40;
+// 600 trials: at 120 the top three styles swap places run to run purely from noise.
+const TRIALS = 600;
 const STYLES: Array<[string, number]> = [
   ["hugs the node", 0.4],
   ["cautious", 0.55],
@@ -64,19 +67,22 @@ const STYLES: Array<[string, number]> = [
 
 const rate = (staked: boolean, reach: number) => {
   const runs = Array.from({ length: TRIALS }, () => play(staked, reach));
+  const share = (test: (c: number) => boolean) =>
+    Math.round(runs.filter(r => test(r.cleared)).length / TRIALS * 100);
   return {
-    won: Math.round(runs.filter(r => r.won).length / TRIALS * 100),
+    won: Number((runs.filter(r => r.won).length / TRIALS * 100).toFixed(1)),
+    wave8: share(c => c >= 8),
     avg: (runs.reduce((t, r) => t + r.cleared, 0) / TRIALS).toFixed(1),
   };
 };
 
-for (const hp of [0.20, 0.22, 0.24, 0.26]) {
-  TUNING.hpGrowth = hp;
-  console.log(`\n=== health growth ${hp.toFixed(2)} ===`);
-  console.log("style            scrap-only (gun L4)      staked (gun L8)");
-  for (const [name, reach] of STYLES) {
-    const a = rate(false, reach), b = rate(true, reach);
-    console.log(
-      `  ${name.padEnd(14)} wave 9 ${String(a.won).padStart(3)}%  avg ${a.avg.padStart(4)}     wave 9 ${String(b.won).padStart(3)}%  avg ${b.avg.padStart(4)}`);
-  }
+console.log(`\n${TRIALS} runs per cell, daily modifier ${modifier.name}\n`);
+console.log("play style        scrap-only (gun L4)          staked (gun L8)");
+console.log("                  wave8  wave9   avg           wave8  wave9   avg");
+for (const [name, reach] of STYLES) {
+  const a = rate(false, reach), b = rate(true, reach);
+  console.log(
+    `  ${name.padEnd(15)} ${String(a.wave8).padStart(3)}%  ${a.won.toFixed(1).padStart(5)}%  ${a.avg.padStart(4)}`
+    + `          ${String(b.wave8).padStart(3)}%  ${b.won.toFixed(1).padStart(5)}%  ${b.avg.padStart(4)}`);
 }
+console.log("\nCamping the node is the failure case; the scrap-only wall sits below wave 8.");

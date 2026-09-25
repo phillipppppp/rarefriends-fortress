@@ -1,7 +1,8 @@
 # Friend Fortress
 
 Your Friend guards a crystal node from waves of glitches — **not as a sprite in the scene, but as the
-weapon.** It fires automatically at anything in range, so where you stand is the whole skill.
+weapon.** It fires automatically at anything in range — a deliberately short range — so where you
+stand decides how much of a wave you actually stop. Turrets only ever fill the gaps you leave.
 
 Built with [FriendSDK](https://github.com/spokesz/friendsdk) v0.1.2 for the Rare Friends Vibeathon.
 
@@ -114,16 +115,22 @@ Scrap income climbs steeply — about 120 by wave 3 and 819 by wave 9 — so eve
 **escalates**. A flat price stops competing with anything by wave 6. At 120 scrap you can afford
 two Pulses, *or* gun L2+L3, *or* three repairs, never all three.
 
-**Staking is what unlocks the deepest wave.** Simulated over 24 runs per profile:
+**Staking is what unlocks the deepest waves.** Simulated over 120 runs per profile, playing the
+Friend forward:
 
-| Build | Clears wave 9 |
-|---|---|
-| Scrap only, gun capped at L4 | **0%** |
-| Staked build, gun to L8 | **≈80%** |
+| Build | Reaches wave 8 | Clears wave 9 | Average wave |
+|---|---|---|---|
+| Scrap only, gun capped at L4 | **0%** | **0%** | 6.8 |
+| Staked build, gun to L8 | **100%** | **≈82%** | 8.8 |
 
-A scrap-only run reliably clears waves 3 and 6 and then dies around wave 7. Only a run that
-stakes Cells on gun levels 5–8 reaches wave 9, and even then it fails about one time in five —
-so the stake is a real bet, not a formality.
+A scrap-only run clears waves 3 and 6 comfortably and then stalls around wave 7. **It cannot reach
+wave 8 at all**, and this is a hard wall rather than a difficulty setting: the L4 gun tops out at
+roughly 386 damage per second against the staked build's 668, and no amount of scrap spent on
+turrets or repairs closes that gap. Staking Cells on gun levels 5–8 is the only route past it, and
+even then wave 9 fails about one run in six — so the stake is a real bet, not a formality.
+
+This is a design choice worth naming plainly: scrap-only play is a complete, repeatable game up to
+wave 7, not a viable path to the deepest reward.
 
 ### What happens to pending plays
 
@@ -142,18 +149,25 @@ was tuned before any pixel existed.
 node tools/balance-sim.mts
 ```
 
-Survival to wave 9 by how aggressively the Friend is played:
+Survival by how far the Friend pushes out from the node, staked build, 600 runs per row:
 
-| Play style | Clears wave 9 |
-|---|---|
-| Holds the node | 7% |
-| Cautious | 23% |
-| Forward | 37% |
-| **Aggressive but disciplined** | **47%** |
-| Chases to the spawn lanes | 13% |
+| Play style | Clears wave 9 | Average wave |
+|---|---|---|
+| Hugs the node | **≈2%** | 8.0 |
+| Cautious | ≈70–75% | 8.7 |
+| Forward | ≈80–85% | 8.8 |
+| Aggressive | ≈80–85% | 8.8 |
+| Chases to the spawn lanes | ≈80–85% | 8.8 |
 
-**Over-extending is punished** — chase too far and the node falls behind you. That was not designed; it
-emerged from the simulation, and it is what makes positioning matter.
+**Camping the node is what fails** — about 2% against about 82%. With the gun's range cut to 68
+units, standing on the node means most of each wave is simply never engaged, and the node soaks
+damage the Friend should have absorbed. That one decision is the skill the game actually asks for.
+
+The ranges are deliberate. Repeated 600-run batches move the bottom three rows by up to five points
+either way, so **forward, aggressive and chasing are indistinguishable from each other** — the game
+rewards leaving the node, not pushing to any particular distance. Reporting them as a ranking would
+be reading noise. The simulated Friend also teleports to the ideal intercept and never mistimes a
+move, so a human chasing the spawn lanes pays a cost the sim does not model.
 
 The simulation also showed combat was fully deterministic, with every wave identical between runs, so
 spawn position and health now carry a little jitter. Runs vary without becoming lotteries.

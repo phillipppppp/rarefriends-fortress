@@ -13,17 +13,25 @@ for (const [label, width, height] of [["desktop", 960, 800], ["phone", 390, 760]
       console.log(`\n=== ${label} ${width}x${height} ===`);
 
       // Count every buffer actually started, inside the sandboxed frame.
+      // Passed as source text: the bundler rewrites named functions with a __name
+      // helper that does not exist inside the page, so a live function would throw.
+      // The inner function must stay anonymous: a named function expression makes the
+      // bundler emit a __name helper that does not exist inside the page.
       await game.locator("body").evaluate(() => {
-        const w = window as unknown as { __cues: number };
+        const w = window as unknown as {
+          __cues: number;
+          AudioBufferSourceNode: { prototype: AudioBufferSourceNode };
+        };
         w.__cues = 0;
-        const proto = (window as unknown as { AudioBufferSourceNode: { prototype: AudioBufferSourceNode } }).AudioBufferSourceNode.prototype;
-        const original = proto.start;
-        proto.start = function patched(this: AudioBufferSourceNode, ...args: unknown[]) {
+        const proto = w.AudioBufferSourceNode.prototype;
+        const original = proto.start as (...a: unknown[]) => unknown;
+        proto.start = function (this: unknown, ...args: unknown[]) {
           w.__cues += 1;
-          return (original as (...a: unknown[]) => unknown).apply(this, args);
+          return original.apply(this, args);
         } as typeof proto.start;
       });
-      const cues = () => game.locator("body").evaluate(() => (window as unknown as { __cues: number }).__cues);
+      const cues = () => game.locator("body").evaluate(
+        () => (window as unknown as { __cues: number }).__cues);
 
       const canvas = game.locator("canvas").first();
       const box = (await canvas.boundingBox())!;

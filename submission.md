@@ -1,6 +1,6 @@
 # Friend Fortress
 
-Your Friend guards a crystal node from waves of glitches — not as a sprite in the scene, but as the weapon. It fires automatically at anything in range, so where you stand is the whole skill.
+Your Friend guards a crystal node from waves of glitches — not as a sprite in the scene, but as the weapon. It fires automatically at anything in range — a deliberately short range — so where you stand decides how much of a wave you actually stop. Turrets only ever fill the gaps you leave.
 
 **Builder:** [@phillipppppp](https://github.com/phillipppppp) · **Category:** Token Activity · **SDK:** FriendSDK v0.1.2
 
@@ -41,11 +41,11 @@ Stations deliberately have no floating label over the world: the SDK prompt is s
 
 | Salvage | Chance | Redemption value |
 |---|---:|---:|
-| Slag Fragment | 15% | 0 RF |
-| Cracked Core | 30% | 0.25 RF |
-| Charged Cell | 28% | 0.60 RF |
-| Focus Lens | 17% | 1.50 RF |
-| Prime Shard | 8% | 3.00 RF |
+| Slag Fragment | 16% | 0 RF |
+| Cracked Core | 29% | 0.30 RF |
+| Charged Cell | 26% | 0.70 RF |
+| Focus Lens | 18% | 1.50 RF |
+| Prime Shard | 9% | 2.90 RF |
 | Node Heart | 2% | 5.00 RF |
 
 Expected reward **0.90 RF per roll — a 10% house edge**, matching both shipped SDK examples and verified by the SDK's own `expectedReward`.
@@ -104,13 +104,15 @@ two Pulses, *or* gun L2+L3, *or* three repairs, never all three.
 
 **Staking is what unlocks the deepest wave.** Simulated over 24 runs per profile:
 
-| Build | Clears wave 9 |
-|---|---|
-| Scrap only, gun capped at L4 | **0%** |
-| Staked build, gun to L8 | **≈80%** |
+| Build | Reaches wave 8 | Clears wave 9 | Average wave |
+|---|---|---|---|
+| Scrap only, gun capped at L4 | **0%** | **0%** | 6.8 |
+| Staked build, gun to L8 | **100%** | **≈82%** | 8.8 |
 
-A scrap-only run reliably clears waves 3 and 6 and then dies around wave 7. Only a run that
-stakes Cells on gun levels 5–8 reaches wave 9, and even then it fails about one time in five —
+A scrap-only run clears waves 3 and 6 comfortably and then stalls around wave 7. **It cannot reach
+wave 8 at all** — a hard wall rather than a difficulty setting, because the L4 gun tops out near 386
+damage per second against the staked build's 668. Staking Cells on gun levels 5–8 is the only route
+past it, and even then wave 9 fails about one run in six —
 so the stake is a real bet, not a formality.
 
 ### What happens to pending plays
@@ -127,7 +129,7 @@ The SDK paints the Friend onto its own `<canvas>`, so combat is drawn on a secon
 
 ## Difficulty, measured rather than guessed
 
-The combat model is pure simulation with no DOM, so whole runs play headlessly and the curve was tuned before any pixel existed. Survival to wave 9, by how aggressively the Friend is played: holding the node 7%, cautious 23%, forward 37%, **aggressive but disciplined 47%**, chasing to the spawn lanes 13%. **Over-extending is punished** — chase too far and the node falls behind you. That was not designed; it emerged from the simulation, and it is what makes positioning matter.
+The combat model is pure simulation with no DOM, so whole runs play headlessly and the curve was tuned before any pixel existed. Wave 9 clear rate for a staked build, by how far the Friend pushes out from the node, 600 runs per row: hugging the node **≈2%**, cautious ≈70–75%, and forward, aggressive and chasing to the spawn lanes all ≈80–85%. **Camping the node is what fails** — about 2% against about 82%. With the gun's range cut to 68 units, standing on the node leaves most of each wave never engaged. That one decision is the skill the game asks for. The ranges are deliberate: repeated 600-run batches move the bottom three rows by up to five points either way, so they are indistinguishable from one another — the game rewards leaving the node, not pushing to any particular distance, and reporting a ranking there would be reading noise. The simulated Friend also teleports to the ideal intercept and never mistimes a move, so a human chasing the lanes pays a cost the sim does not model.
 
 The simulation also revealed combat was fully deterministic, every wave identical between runs, so spawn position and health now carry a little jitter. A **daily modifier** — Steady, Swarm, Dense or Lean — is derived from the UTC date, so it is the same for everyone that day and needs no server.
 
