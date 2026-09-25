@@ -23,7 +23,16 @@ Or open the [playable preview](https://phillipppppp.github.io/rarefriends-fortre
 
 ## Play
 
-Walk with **WASD**, arrow keys, or tap anywhere on the ground. Stand near a station and an **Enter** button appears in the HUD; **E** does the same. During a run, tap **Build** and then tap open ground near the node to place a turret.
+| | Keyboard | Touch |
+|---|---|---|
+| Move | WASD or arrow keys | Tap the ground |
+| Enter a station | Press **E** when near | Tap the station |
+| Build a turret | Tap **Build**, then the spot | Tap **Build**, then the spot |
+| Upgrade or merge | Click a placed turret | Tap a placed turret |
+| Close a panel | **Esc**, one layer at a time | The **X** on the panel |
+| How to Play | **?** in the HUD | **?** in the HUD |
+
+**Esc** closes the topmost layer only — the turret panel before a menu — and never interferes with the SDK's own purchase confirmation, which belongs to the host.
 
 Stations deliberately have no floating label over the world: the SDK prompt is sized in CSS pixels while the world canvas scales down, so on a phone one prompt covers roughly 300x85 canvas pixels and swallows the taps that are the only way to walk. Keeping the action in the HUD leaves the whole canvas tappable, which is verified at 390px and 960px.
 
@@ -127,19 +136,19 @@ left hanging, and purchases never silently stop working.
 
 The SDK paints the Friend onto its own `<canvas>`, so combat is drawn on a second transparent canvas stacked exactly over it. Each frame reads the live Friend position the runtime publishes and projects enemies, beams, turrets and the node through the SDK's exported `project()`. Nothing reaches into the SDK canvas, the parent page, or the wallet.
 
-A **How to Play** card opens on load, before anything else: four lines covering the goal, the controls, what scrap buys and the bank-or-push choice. It names taps on a phone and keys on a desktop, chosen by media query rather than guessed from the device. It closes with **Got it**, the **X** or **Escape**, and the **?** in the HUD reopens it. The primary action sits in the menu's pinned footer, because at 390px the scrolling body is only ~131px tall and a button placed inline sat below the fold.
+A **How to Play** card opens on load, before anything else: four lines covering the goal, the controls, what scrap buys and the bank-or-push choice. It names taps on a phone and keys on a desktop. It closes with **Got it**, the **X** or **Escape**, and the **?** in the HUD reopens it.
 
-Four decorative effects sit on top of that: a white flash on an enemy that survives a hit, a ring burst where one dies, a wave-number banner, and an edge pulse when the gun levels. **None of them touch `combat.ts`** — hits are detected by comparing health between frames in the renderer, so the simulation remains the only thing that decides balance. **Reduced motion removes them rather than freezing them**, and the frame loop reads that setting through a ref so toggling it never restarts the loop. At 390px the game holds the display's full **60fps with a 17ms median and 95th-percentile frame**, and the cost of the effects is measured by repeating the reading with reduced motion on and comparing: **within ±2%, which is noise**. Bursts are capped at 24 so a heavy wave cannot grow the draw list without bound.
+Four decorative effects sit on top of that: a white flash on an enemy that survives a hit, a ring burst where one dies, a wave-number banner, and an edge pulse when the gun levels. **None of them touch `combat.ts`** — hits are detected by comparing health between frames in the renderer, so the simulation remains the only thing that decides balance. **Reduced motion removes them rather than freezing them**, and the frame loop reads that setting through a ref so toggling it never restarts the loop. They cost no measurable frame rate at phone size.
 
 ## Difficulty, measured rather than guessed
 
-The combat model is pure simulation with no DOM, so whole runs play headlessly and the curve was tuned before any pixel existed. Wave 9 clear rate for a staked build, by how far the Friend pushes out from the node, 600 runs per row: hugging the node **≈2%**, cautious ≈70–75%, and forward, aggressive and chasing to the spawn lanes all ≈80–85%. **Camping the node is what fails** — about 2% against about 82%. With the gun's range cut to 68 units, standing on the node leaves most of each wave never engaged. That one decision is the skill the game asks for. The ranges are deliberate: repeated 600-run batches move the bottom three rows by up to five points either way, so they are indistinguishable from one another — the game rewards leaving the node, not pushing to any particular distance, and reporting a ranking there would be reading noise. The simulated Friend also teleports to the ideal intercept and never mistimes a move, so a human chasing the lanes pays a cost the sim does not model.
+The combat model is pure simulation with no DOM, so whole runs play headlessly and the curve was tuned before any pixel existed. Wave 9 clear rate for a staked build, by how far the Friend pushes out from the node, 600 runs per row: hugging the node **≈2%**, cautious ≈70–75%, and forward, aggressive and chasing to the spawn lanes all ≈80–85%. **Camping the node is what fails** — about 2% against about 82%. With the gun's range cut to 68 units, standing on the node leaves most of each wave never engaged. That one decision is the skill the game asks for. Beyond "move out" the distance stops mattering: the three forward styles are indistinguishable from one another, so they are given as a range rather than a ranking.
 
 The simulation also revealed combat was fully deterministic, every wave identical between runs, so spawn position and health now carry a little jitter. A **daily modifier** — Steady, Swarm, Dense or Lean — is derived from the UTC date, so it is the same for everyone that day and needs no server.
 
 ## Checks and known issues
 
-`npx tsc -p game/tsconfig.json`, `friendsdk check`, `friendsdk test`, a headless difficulty simulation and an end-to-end run all pass. The end-to-end test drives the real sandboxed runtime: it buys Power Cells, starts a run, confirms enemies spawn and the overlay actually paints, waits for the bank-or-push choice, then banks and settles the rolls through `play`/`settle`. Both are in [`tools/`](https://github.com/phillipppppp/rarefriends-fortress/tree/main/tools) and runnable. Automated checks use the SDK fixture identity; a real-wallet playthrough of this game is still outstanding.
+Typecheck, `friendsdk check`, `friendsdk test`, two headless balance simulations and **11 suites** all pass: turret placement, merging, staking, taps, both turret types, sound, visual effects, the full buy-run-bank-settle loop through the real sandboxed runtime, controls, Escape layering, and How to Play. UI suites run at both 390px and 960px. All are in [`tools/`](https://github.com/phillipppppp/rarefriends-fortress/tree/main/tools) and runnable. Automated checks use the SDK fixture identity; a real-wallet playthrough of this game is still outstanding.
 
 **The content is deliberately small**: three enemy kinds (motes throughout, shards from wave 4, hulks from wave 5), two turret types that are both buildable, upgradeable and mergeable, and nine waves as the full run with no endless mode. Run progress does not survive a reload, since the SDK preview ledger is in memory. **The game does not load inside MetaMask's in-app mobile browser** — the SDK renders games in `<iframe sandbox="allow-scripts">` and the bridge handshake does not complete there, though it works in Chromium and WebKit at desktop and phone viewports, so it is that app's webview rather than the engine, and it affects every FriendSDK game equally. Desktop with a browser-extension wallet works.
 
