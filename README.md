@@ -40,7 +40,12 @@ table true, and leaves the bank-or-push tension intact.
 
 Walk with **WASD**, arrow keys, or tap anywhere on the ground. Stand near a station and an
 **Enter** button appears in the HUD; **E** does the same. During a run, tap **Build** and then tap
-open ground near the node to place a turret.
+open ground near the node to place a turret. Tap a placed turret to upgrade or merge it.
+
+**Escape** closes whatever is open, one layer at a time — the turret panel first, then a menu —
+and does nothing when nothing is open. It deliberately never interferes with the SDK's purchase
+confirmation, which is the host's to dismiss. Every panel keeps its own close control, so touch
+is never left without a way out.
 
 Stations deliberately have no floating label over the world. The SDK prompt is sized in CSS pixels
 while the world canvas scales down, so on a phone one prompt covers roughly 300x85 canvas pixels and
@@ -177,12 +182,25 @@ everyone that day and needs no server.
 
 ## Checks
 
+`game/` is a FriendSDK game directory, so these run once it sits in a FriendSDK workspace
+(`npm i -g friendsdk`, then point the commands at wherever it is checked out):
+
 ```bash
 npx tsc -p game/tsconfig.json   # typecheck
-npx friendsdk check games/fortress
-npx friendsdk test  games/fortress
+npx friendsdk check game        # manifest, expected reward, bundle size
+npx friendsdk test  game
 node tools/balance-sim.mts      # headless difficulty simulation
+node tools/style-sim.mts        # clear rates by play style, 600 runs per row
 node tools/loop-e2e.mts         # buy, run, fight, bank, settle, in the real runtime
+node tools/effects-audit.mts    # effects present, performant, and off under reduced motion
+node tools/esc-audit.mts        # Escape closes the topmost layer and nothing else
+node tools/controls-audit.mts   # live regions, mute, and reduced motion both ways
+node tools/tap-audit.mts        # every tap reaches the world at 390px and 960px
+node tools/merge-e2e.mts        # merging two turrets, at phone and desktop widths
+node tools/stake-e2e.mts        # what stakes a Cell, what recovers one, what forfeits
+node tools/placement-test.mts   # placement refusals name the real reason
+node tools/turrets-e2e.mts      # both turret types place and confirm
+node tools/sound-audit.mts      # every cue actually reaches Web Audio
 ```
 
 `loop-e2e` drives the real sandboxed runtime: it buys Power Cells, starts a run, confirms enemies spawn
@@ -196,14 +214,45 @@ stacked exactly over it. Each frame reads the live Friend position the runtime p
 enemies, beams, turrets and the node through the SDK's exported `project()`. Nothing reaches into the
 SDK canvas, the parent page, or the wallet.
 
+## Effects, and how they stay out of the way
+
+Four decorative touches, and nothing that changes how the game plays:
+
+| Effect | What it does |
+|---|---|
+| Hit flash | An enemy that survives a hit flashes white for 0.14s |
+| Death burst | A ring expands where an enemy dies, over 0.32s |
+| Wave banner | The wave number sweeps across the arena once, for 1.15s |
+| Gun pulse | Levelling the gun lights the arena edge for 0.62s |
+
+**None of it touches `combat.ts`.** Hits are detected in the renderer by comparing each enemy's
+health with the previous frame, so the simulation is still the only thing that decides balance and a
+visual change cannot move a number. At gun L1 a 52-damage shot kills a 44hp mote outright, so early
+waves show bursts and flashes only begin once health scaling lets something survive a hit — the
+feedback distinguishes a hit from a kill for free.
+
+**Reduced motion removes them rather than freezing them.** The frame loop reads the setting through
+a ref, so toggling it never restarts the loop, and switching it on clears whatever is already on
+screen. The banner and the pulse are not rendered at all, not merely un-animated.
+
+**Measured rather than assumed:** 120fps at 390px with a 17ms 95th-percentile frame and no frame
+over 32ms, taken by wrapping the game's own frame loop rather than a probe beside it. Bursts are
+capped at 24 so a heavy wave cannot grow the draw list without bound, and the flash refills the
+path already built for the enemy instead of constructing a second one.
+
+```bash
+node tools/effects-audit.mts    # all four effects, at 390px and 960px
+```
+
 ## Simulated mechanics and known issues
 
 **All balances, purchases and rewards are simulated**, as the SDK preview client intends. No RF moves.
 Wallet connection, NFT ownership verification and Friend selection are handled entirely by the SDK
 runtime and are not reimplemented here.
 
-- **This is the first playable milestone.** One enemy type carries waves 1–3, with tougher kinds from
-  wave 4; one turret type is buildable, upgrades exist in the model but are not yet exposed.
+- **Content is deliberately small.** Three enemy kinds: motes throughout, shards from wave 4 and
+  hulks from wave 5. Two turret types, Pulse and Arc, both buildable, upgradeable and mergeable.
+  Nine waves is the full run; there is no endless mode.
 - **Run progress does not survive a reload.** The SDK preview ledger is held in memory.
 - **The game does not load inside MetaMask's in-app mobile browser.** The SDK renders games in
   `<iframe sandbox="allow-scripts">` and the bridge handshake does not complete there. It works in
