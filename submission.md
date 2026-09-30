@@ -2,7 +2,9 @@
 
 Your Friend guards a crystal node from waves of glitches — not as a sprite in the scene, but as the weapon. It fires automatically at anything in range — a deliberately short range — so where you stand decides how much of a wave you actually stop. Turrets only ever fill the gaps you leave.
 
-**Builder:** [@phillipppppp](https://github.com/phillipppppp) · **Category:** Token Activity · **SDK:** FriendSDK v0.1.2
+**Category:** Token Activity · **SDK:** FriendSDK v0.1.2
+
+**Builder:** Deez (GitHub: [@phillipppppp](https://github.com/phillipppppp)) · **Contact:** X [@deeznuts_ron](https://x.com/deeznuts_ron) · Telegram [@deeznuts_ron](https://t.me/deeznuts_ron)
 
 Every run spends Power Cells — one to start, one per roll banked — and runs are short and repeatable by design, so the token leaves circulation continuously rather than once.
 
